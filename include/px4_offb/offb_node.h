@@ -62,23 +62,18 @@ public:
 
     void uavPoseCallback(const geometry_msgs::PoseStamped::ConstPtr &msg);
     //void missionTimerCallBack(const ros::TimerEvent &);
-    bool takeoff();
 
     bool set_offboard();
     
     void land();
 
-    void referenceCallbackTimer(const ros::TimerEvent &);
-
-    void takeoffCallbackTimer(const ros::TimerEvent &);
-
-    void referenceCallback(const mavros_msgs::PositionTarget::ConstPtr &msg);
-
-    void referencePrepCallback(const mavros_msgs::PositionTarget::ConstPtr &msg);
+    void missionTimer(const ros::TimerEvent &);
 
     void gpsCurrentCallback(const sensor_msgs::NavSatFix::ConstPtr &msg);
 
     void gpsHomeCallback(const mavros_msgs::HomePosition::ConstPtr &msg);
+
+    // void calculateYaw(const mavros_msgs::PositionTarget::ConstPtr &msg);
     
 
 private:
@@ -92,17 +87,11 @@ private:
     ros::ServiceClient set_mode_client;
     ros::ServiceClient takeoff_client;
     ros::Publisher Position_Setpoint_Pub;
-    ros::Publisher uav_ref_prep_pub;
-    ros::Subscriber uav_ref_prep_sub;
     ros::Subscriber uav_pose_sub;
-    ros::Publisher uav_ref_pub;
-    ros::Subscriber uav_ref_sub;
     ros::Subscriber uav_gps_cur_sub;
     ros::Subscriber uav_gps_home_sub;
 
     geometry_msgs::Point pos_init;
-
-    double _relativeHeight;
 
     UavTaskState uavTask;
 
@@ -118,12 +107,11 @@ private:
     double takeoff_height;
     double takeoff_x;
     double takeoff_y;
-    ros::Timer reference_timer;
-    ros::Timer takeoff_timer;
-    mavros_msgs::PositionTarget tgt;
+    ros::Timer mission_timer;
 
     sensor_msgs::NavSatFix uav_gps_cur;
     mavros_msgs::HomePosition uav_gps_home;
 
     bool takeoff_flag; // this flag is set if the drone has took off
+    bool takeoff_announced;
 };
