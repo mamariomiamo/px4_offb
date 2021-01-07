@@ -110,7 +110,8 @@ void OffbNode::missionTimer(const ros::TimerEvent &)
             pos_sp.acceleration_or_force.x = _traj_list[_points_id].acc.x;
             pos_sp.acceleration_or_force.y = _traj_list[_points_id].acc.y;
             pos_sp.acceleration_or_force.z = _traj_list[_points_id].acc.z;
-            pos_sp.yaw = atan2(pos_sp.velocity.y, pos_sp.velocity.x);
+            //pos_sp.yaw = atan2(pos_sp.velocity.y, pos_sp.velocity.x); // yaw control
+            pos_sp.yaw = 0; //fixed yaw
 
             _points_id++;
         }
@@ -305,7 +306,7 @@ void OffbNode::cmd_cb(const std_msgs::Byte::ConstPtr &msg)
 
 bool OffbNode::loadTrajectory()
 {
-    std::ifstream infile(trajectory_location);
+    std::ifstream infile(trajectory_location.c_str());
     std::string line;
     clearTrajectory();
     bool succeed = false;
