@@ -41,7 +41,7 @@ OffbNode::OffbNode(ros::NodeHandle &nodeHandle) : _nh(nodeHandle)
     uav_gps_home_sub = _nh.subscribe<mavros_msgs::HomePosition>(
         "/mavros/home_position/home", 1, &OffbNode::gpsHomeCallback, this);
 
-    _nh.param<std::string>("WP_Location", trajectory_location, "/home/zhengtian/px4_offb/src/px4_offb/param/waypoints");
+    _nh.param<std::string>("WP_Location", trajectory_location, "/home/zhengtian/autopilot/PhD/offboard/src/px4_offb/param/waypoints");
     std::cout << "WP_Location: " << trajectory_location << std::endl;
 
     ROS_INFO("Offboard node is ready!");
@@ -322,9 +322,8 @@ bool OffbNode::loadTrajectory()
     while (std::getline(infile, line))
     {
         std::istringstream iss(line);
-        double _1, _2, _3, _4, _5, _6, _7, _8, _9;
-        if (!(iss >> _1 >> _2 >> _3 >> _4 >> _5 >> _6 >> _7 >> _8 >>
-              _9))
+        double _1, _2, _3;
+        if (!(iss >> _1 >> _2 >> _3))
         {
             ROS_ERROR("The data size is not correct!");
             return false;
@@ -333,14 +332,14 @@ bool OffbNode::loadTrajectory()
         p.pos.x = _1;
         p.pos.y = _2;
         p.pos.z = _3;
-        p.vel.x = _4;
-        p.vel.y = _5;
-        p.vel.z = _6;
-        p.acc.x = _7;
-        p.acc.y = _8;
-        p.acc.z = _9;
+        p.vel.x = 0;
+        p.vel.y = 0;
+        p.vel.z = 0;
+        p.acc.x = 0;
+        p.acc.y = 0;
+        p.acc.z = 0;
         _traj_list.push_back(p);
-        std::cout << "Position : " << _traj_list[_points_id].pos.x << " " << _traj_list[_points_id].pos.y << " " << _traj_list[_points_id].pos.z << " "
+        std::cout << "Thrust setpoints : " << _traj_list[_points_id].pos.x << " " << _traj_list[_points_id].pos.y << " " << _traj_list[_points_id].pos.z << " "
                   << "Velocity : " << _traj_list[_points_id].vel.x << " " << _traj_list[_points_id].vel.y << " " << _traj_list[_points_id].vel.z << " "
                   << "Accel : " << _traj_list[_points_id].acc.x << " " << _traj_list[_points_id].acc.y << " " << _traj_list[_points_id].acc.z << " "
                   << std::endl;

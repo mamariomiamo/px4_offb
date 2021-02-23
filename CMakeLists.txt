@@ -11,6 +11,7 @@ find_package(catkin REQUIRED COMPONENTS
   geometry_msgs
   mavros_msgs
   roscpp
+  rospy
   std_msgs
   common_msgs
 )
@@ -107,7 +108,7 @@ find_package(catkin REQUIRED COMPONENTS
 catkin_package(
 #  INCLUDE_DIRS include
 #  LIBRARIES px4_offb
-  CATKIN_DEPENDS geometry_msgs mavros_msgs roscpp std_msgs common_msgs
+  CATKIN_DEPENDS geometry_msgs mavros_msgs roscpp std_msgs common_msgs rospy
 #  DEPENDS system_lib
 )
 
@@ -206,3 +207,7 @@ include_directories(
 
 ## Add folders to be run by python nosetests
 # catkin_add_nosetests(test)
+
+catkin_install_python(PROGRAMS scripts/offb_py.py scripts/offb_py_v1.py scripts/Robust_Flight.py scripts/UavEnv.py scripts/uavNN.py
+  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
