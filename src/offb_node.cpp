@@ -93,49 +93,28 @@ void OffbNode::missionTimer(const ros::TimerEvent &)
 
     case kMission:
     {
-        mavros_msgs::PositionTarget pos_sp;
         ROS_INFO("Mission timer Doing mission!");
-        if (_points_id <= _traj_list.size() - 1)
-        {
-            std::cout << "Go to next ref: " << _points_id << std::endl;
-            std::cout << "Position: " << _traj_list[_points_id].pos.x << " " << _traj_list[_points_id].pos.y << " " << _traj_list[_points_id].pos.z << std::endl;
-            std::cout << "Velocity: " << _traj_list[_points_id].vel.x << " " << _traj_list[_points_id].vel.y << " " << _traj_list[_points_id].vel.z << std::endl;
-            std::cout << "Aceleration: " << _traj_list[_points_id].acc.x << " " << _traj_list[_points_id].acc.y << " " << _traj_list[_points_id].acc.z << std::endl;
-            pos_sp.position.x = _traj_list[_points_id].pos.x;
-            pos_sp.position.y = _traj_list[_points_id].pos.y;
-            pos_sp.position.z = _traj_list[_points_id].pos.z;
-            pos_sp.velocity.x = _traj_list[_points_id].vel.x;
-            pos_sp.velocity.y = _traj_list[_points_id].vel.y;
-            pos_sp.velocity.z = _traj_list[_points_id].vel.z;
-            pos_sp.acceleration_or_force.x = _traj_list[_points_id].acc.x;
-            pos_sp.acceleration_or_force.y = _traj_list[_points_id].acc.y;
-            pos_sp.acceleration_or_force.z = _traj_list[_points_id].acc.z;
-            //pos_sp.yaw = atan2(pos_sp.velocity.y, pos_sp.velocity.x); // yaw control
-            pos_sp.yaw = 0; //fixed yaw
-
-            _points_id++;
+        mavros_msgs::PositionTarget pos_sp;
+        pos_sp.position.x = 0.0;
+        pos_sp.position.y = 0.0;
+        pos_sp.position.z = takeoff_height;
+        
+        if(abs(uav_pose.pose.position.x - 0.0) < 0.05 && abs(uav_pose.pose.position.y - 0.0) < 0.05){
+            mission_time = ros::Time::now();
         }
-        else if (_points_id == _traj_list.size())
+        hover_time = ros::Time::now() - mission_time;
+        double sec = hover_time.toSec();
+        if(sec>5){
+            pos_sp.position.z = takeoff_height - 0.3;
+        } else if (sec>10)
         {
-            _points_id--;
-            std::cout << "Hold last ref: " << _points_id << std::endl;
-            std::cout << "Position: " << _traj_list[_points_id].pos.x << " " << _traj_list[_points_id].pos.y << " " << _traj_list[_points_id].pos.z << std::endl;
-            std::cout << "Velocity: " << _traj_list[_points_id].vel.x << " " << _traj_list[_points_id].vel.y << " " << _traj_list[_points_id].vel.z << std::endl;
-            std::cout << "Aceleration: " << _traj_list[_points_id].acc.x << " " << _traj_list[_points_id].acc.y << " " << _traj_list[_points_id].acc.z << std::endl;
-            pos_sp.position.x = _traj_list[_points_id].pos.x;
-            pos_sp.position.y = _traj_list[_points_id].pos.y;
-            pos_sp.position.z = _traj_list[_points_id].pos.z;
-            pos_sp.velocity.x = _traj_list[_points_id].vel.x;
-            pos_sp.velocity.y = _traj_list[_points_id].vel.y;
-            pos_sp.velocity.z = _traj_list[_points_id].vel.z;
-            pos_sp.acceleration_or_force.x = _traj_list[_points_id].acc.x;
-            pos_sp.acceleration_or_force.y = _traj_list[_points_id].acc.y;
-            pos_sp.acceleration_or_force.z = _traj_list[_points_id].acc.z;
-            _points_id++;
+        pos_sp.position.x = takeoff_x;
+        pos_sp.position.y = takeoff_y;
+        pos_sp.position.z = takeoff_height;
         }
+        
 
-        pos_sp.type_mask = 32768;
-        std::cout << "Yaw: " << pos_sp.yaw << std::endl;
+        pos_sp.type_mask = 3576;
         Position_Setpoint_Pub.publish(pos_sp);
     }
 
@@ -253,9 +232,11 @@ void OffbNode::cmd_cb(const std_msgs::Byte::ConstPtr &msg)
         }
         ROS_INFO("TAKEOFF command received!");
         uavTask = kTakeOff;
-        takeoff_height = uav_pose.pose.position.z + 1.0;
+        takeoff_height = uav_pose.pose.position.z + 2.3;
         takeoff_x = uav_pose.pose.position.x;
         takeoff_y = uav_pose.pose.position.y;
+        land_x = takeoff_x;
+        land_y = takeoff_y;
         if (set_offboard())
         {
             ROS_INFO("offboard mode activated going to run takeoff");

@@ -107,7 +107,11 @@ private:
     double takeoff_height;
     double takeoff_x;
     double takeoff_y;
+    double land_x;
+    double land_y;
     ros::Timer mission_timer;
+    ros::Time mission_time;
+    ros::Duration hover_time;
 
     sensor_msgs::NavSatFix uav_gps_cur;
     mavros_msgs::HomePosition uav_gps_home;
