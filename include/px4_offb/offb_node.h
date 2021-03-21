@@ -55,6 +55,7 @@ public:
 
     bool loadTrajectory();
     void clearTrajectory();
+    bool reached;
     void pubTrajectory();
     //void state_cb(const mavros_msgs::State::ConstPtr &msg);
     void cmd_cb(const std_msgs::Byte::ConstPtr &msg);
@@ -109,6 +110,7 @@ private:
     double takeoff_y;
     double land_x;
     double land_y;
+    double sec;
     ros::Timer mission_timer;
     ros::Time mission_time;
     ros::Duration hover_time;

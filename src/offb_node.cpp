@@ -10,6 +10,8 @@ OffbNode::OffbNode(ros::NodeHandle &nodeHandle) : _nh(nodeHandle)
 
     takeoff_announced = false;
 
+    reached = false;
+
     // publish file timer
     _nh.param("missionPeriod", _missionPeriod, 0.2);
     std::cout << "missionPeriod: " << _missionPeriod << std::endl;
@@ -98,21 +100,43 @@ void OffbNode::missionTimer(const ros::TimerEvent &)
         pos_sp.position.x = 0.0;
         pos_sp.position.y = 0.0;
         pos_sp.position.z = takeoff_height;
-        
-        if(abs(uav_pose.pose.position.x - 0.0) < 0.05 && abs(uav_pose.pose.position.y - 0.0) < 0.05){
-            mission_time = ros::Time::now();
-        }
-        hover_time = ros::Time::now() - mission_time;
-        double sec = hover_time.toSec();
-        if(sec>5){
-            pos_sp.position.z = takeoff_height - 0.3;
-        } else if (sec>10)
+
+        double diff_x = uav_pose.pose.position.x - 0.0;
+        double diff_y = uav_pose.pose.position.y - 0.0;
+        printf("x diff is %f\n", diff_x);
+        printf("y diff is %f\n", diff_y);
+
+        if (abs(uav_pose.pose.position.x - 0.0) < 0.25 && abs(uav_pose.pose.position.y - 0.0) < 0.25 && !reached)
         {
-        pos_sp.position.x = takeoff_x;
-        pos_sp.position.y = takeoff_y;
-        pos_sp.position.z = takeoff_height;
+            mission_time = ros::Time::now();
+            printf("reached\n");
+            reached = true;
         }
-        
+
+        if (reached)
+        {
+            hover_time = ros::Time::now() - mission_time;
+            sec = hover_time.toSec();
+            ROS_INFO("sec is %f", sec);
+            if (sec < 10)
+            {
+                pos_sp.position.z = takeoff_height;
+                printf("hovering\n");
+            }
+            else if (sec > 20)
+            {
+                pos_sp.position.x = takeoff_x;
+                pos_sp.position.y = takeoff_y;
+                pos_sp.position.z = takeoff_height;
+                printf("Going back\n");
+            }
+
+            else if (sec > 10)
+            {
+                pos_sp.position.z = takeoff_height - 0.3;
+                printf("Descending\n");
+            }
+        }
 
         pos_sp.type_mask = 3576;
         Position_Setpoint_Pub.publish(pos_sp);
@@ -256,6 +280,8 @@ void OffbNode::cmd_cb(const std_msgs::Byte::ConstPtr &msg)
         }
         ROS_INFO("command received!");
         ROS_INFO("Loading Trajectory...");
+        sec = 0;
+        reached = false;
         if (loadTrajectory())
         {
 
