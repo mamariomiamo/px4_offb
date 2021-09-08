@@ -1,0 +1,6 @@
+<launch>
+
+    <include file="$(find vrpn_client_ros)/launch/sample.launch">
+    </include>
+
+</launch>

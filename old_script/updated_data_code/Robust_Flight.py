@@ -53,7 +53,7 @@ class Controller:
         v_trace = v[0, 0] + v[1, 1] + v[2, 2]
         return v_trace
 
-    def position_ctrl(self, ctrl_gain, state, R_B, ref_p, ref_v, ref_dv, b1_d, df_Imh):
+    def position_ctrl(self, ctrl_gain, state, ref_p, ref_v, ref_dv, b1_d, df_Imh):
         self.kpx, self.kpy, self.kpz = ctrl_gain[0, 0], ctrl_gain[0, 1], ctrl_gain[0, 2]
         self.kvx, self.kvy, self.kvz = ctrl_gain[0, 3], ctrl_gain[0, 4], ctrl_gain[0, 5]
         self.kax, self.kay, self.kaz = 5, 5, 5 # 3.5, 3.5, 3.5 for T_step = 1e-2, dt_sample = 5e-2
@@ -75,14 +75,18 @@ class Controller:
         self.r_I_v = vertcat(self.state_v[0], self.state_v[1], self.state_v[2])
         self.v_I = np.array([[state[3, 0], state[4, 0], state[5, 0]]]).T
         self.v_I_v = vertcat(self.state_v[3], self.state_v[4], self.state_v[5])
-        self.R_B = R_B
+        self.R_B = np.array([
+            [state[6, 0], state[7, 0], state[8, 0]],
+            [state[9, 0], state[10, 0], state[11, 0]],
+            [state[12, 0], state[13, 0], state[14, 0]]]
+        )
         self.R_B_v = vertcat(
             horzcat(self.state_v[6], self.state_v[7], self.state_v[8]),
             horzcat(self.state_v[9], self.state_v[10], self.state_v[11]),
             horzcat(self.state_v[12], self.state_v[13], self.state_v[14])
         )
-        # self.w_B = np.array([[state[15, 0], state[16, 0], state[17, 0]]]).T
-        # self.w_B_v = vertcat(self.state_v[15], self.state_v[16], self.state_v[17])
+        self.w_B = np.array([[state[15, 0], state[16, 0], state[17, 0]]]).T
+        self.w_B_v = vertcat(self.state_v[15], self.state_v[16], self.state_v[17])
 
         # Position tracking error
         e_x = self.r_I - ref_p
@@ -96,8 +100,8 @@ class Controller:
         # Z direction vector free of coordinate
         z = np.array([[0, 0, 1]]).T
         # Desired control force
-        fd = -np.matmul(self.kp, e_x) - np.matmul(self.kv, e_v) + self.mass*g*z + self.mass*ref_dv - df_Imh
-        self.fd_v = -mtimes(self.kp_v, self.ex_v) - mtimes(self.kv_v, self.ev_v) - self.mass*g*z + self.mass*ref_dv - self.df_I_v
+        fd = np.matmul(self.kp, e_x) + np.matmul(self.kv, e_v) + self.mass*g*z - self.mass*ref_dv + df_Imh
+        self.fd_v = mtimes(self.kp_v, self.ex_v) + mtimes(self.kv_v, self.ev_v) + self.mass*g*z - self.mass*ref_dv + self.df_I_v
         # Magnitude of the desired force (2-norm)
         fdm = LA.norm(fd)
         # Total thrust (project of the desired thrust to body z axis expressed in inertial frame)
@@ -152,7 +156,8 @@ class Controller:
         return u
 
 class MHE:
-    def __init__(self, horizon, dt_sample):
+    def __init__(self, para, horizon, dt_sample):
+        self.mass = para[0]
         self.N = horizon
         self.DT = dt_sample
 
@@ -170,15 +175,14 @@ class MHE:
         self.ctrl = ctrlv
         self.n_ctrl = ctrlv.numel()
 
-    def SetRotationVariable(self, rotation, quaternion):
+    def SetRotationVariable(self, rotation):
         self.R_B_v = rotation
-        self.quater = quaternion
 
     def SetNoiseVariable(self, noise):
         self.noise = noise
         self.n_noise = noise.numel()
 
-    def SetModelDyn(self, ode_mh, ode_ukf):
+    def SetModelDyn(self, ode_mh):
         assert hasattr(self, 'state'), "Define the state variable first!"
         assert hasattr(self, 'ctrl'), "Define the control variable first!"
         assert hasattr(self, 'noise'), "Define the noise variable first!"
@@ -186,8 +190,6 @@ class MHE:
         self.ModelDyn = self.state + self.DT*ode_mh
         self.MDyn_fn  = Function('MDyn', [self.state, self.ctrl, self.noise, self.R_B_v], [self.ModelDyn],
                                  ['s', 'c', 'n', 'R_B'], ['MDynf'])
-        self.ModelDyn_ukf = self.state + self.DT*ode_ukf
-        self.MDyn_ukf_fn = Function('MDyn_ukf', [self.state, self.ctrl, self.quater], [self.ModelDyn_ukf], ['s', 'c', 'qt'], ['MDyn_ukff'])
 
     def SetArrivalCost(self, x_hatmh):
         assert hasattr(self, 'state'), "Define the state variable first!"
@@ -224,10 +226,10 @@ class MHE:
 
     def para(self, para_bar):
         P_min = 0
-        P_max = 1e-1
+        P_max = 1
         gammar_min = 0
-        gammar_max = 5e-1
-        gammaq_min = 5e-1
+        gammar_max = 1
+        gammaq_min = 0
         gammaq_max = 1
         R_min = 0
         R_max = 1e2
@@ -248,7 +250,7 @@ class MHE:
         return  tunable_para
 
 
-    def MHEsolver(self, Y, track_e, x_hatmh, xmhe_traj, ctrl, model_QR, time, R_b, print_level=0):
+    def MHEsolver(self, Y, track_e, x_hatmh, xmhe_traj, ctrl, model_QR, time, R_b, ref_pva, print_level=0):
         assert hasattr(self, 'state'), "Define the state variable first!"
         assert hasattr(self, 'noise'), "Define the noise variable first!"
         assert hasattr(self, 'MDyn_fn'), "Define the model dynamics function first!"
@@ -284,8 +286,12 @@ class MHE:
         else:
             # Moving horizon estimation
             self.horizon = self.N
-
-        t_para = model_QR(track_e[-1])
+        if np.size(ctrl) == 0:
+            ctrl_f0 = np.array([[0, 0, -self.mass * 9.81]]).T
+            input_nn_QR = np.vstack((Y[-1], ref_pva))
+        else:
+            input_nn_QR = np.vstack((Y[-1], ref_pva))
+        t_para = model_QR(input_nn_QR)
         tunable_para = self.para(t_para)
         J = self.cost_a_fn(s=Xk, tp=tunable_para)['cost_af']
 
@@ -319,8 +325,6 @@ class MHE:
             ubg  += self.n_state*[0]
 
         # Add the final cost
-        t_para = model_QR(track_e[-1])
-        tunable_para = self.para(t_para)
         J += self.dJ_T_fn(s=Xk, m=Y[-1], tp=tunable_para, h1=self.horizon-1, ind=self.horizon-1)['dJ_Tf']
 
         # Create an NLP solver
@@ -384,29 +388,34 @@ class MHE:
 
         # Differentiate the dynamics to get the system Jacobian
         self.A    = jacobian(self.ModelDyn, self.state)
-        self.A_fn = Function('A', [self.state], [self.A], ['s'], ['Af'])
+        self.A_fn = Function('A', [self.state, self.ctrl, self.noise], [self.A], ['s', 'c', 'n'], ['Af'])
         self.B    = jacobian(self.ModelDyn, self.noise) # B matrix is constant
-        self.B_fn = Function('B', [self.state], [self.B], ['s'], ['Bf'])
+        self.B_fn = Function('B', [self.state, self.ctrl, self.noise], [self.B], ['s', 'c', 'n'], ['Bf'])
         self.fu   = mtimes(mtimes(self.B, inv(self.Q)), mtimes(transpose(self.B), self.costate))
         self.D    = jacobian(self.fu, self.tunable_para)
-        self.D_fn = Function('D', [self.costate, self.tunable_para, self.horizon1, self.index], [self.D], ['cs', 'tp', 'h1', 'ind'], ['Df'])
+        self.D_fn = Function('D', [self.costate, self.state, self.ctrl, self.noise, self.tunable_para, self.horizon1, self.index], [self.D], ['cs', 's', 'c', 'n', 'tp', 'h1', 'ind'], ['Df'])
         self.H_fn = Function('H', [self.state], [self.H], ['s'], ['Hf'])
 
         # Second-order derivative of Lagrangian
         self.dJrun_x = mtimes(mtimes(self.H.T, self.R), self.measurement - mtimes(self.H, self.state))
         self.E    = jacobian(self.dJrun_x, self.tunable_para)
-        self.E_fn = Function('E', [self.state, self.measurement, self.tunable_para, self.horizon1, self.index], [self.E], ['s', 'm', 'tp', 'h1', 'ind'], ['Ef'])
+        self.E_fn = Function('E', [self.state, self.ctrl, self.noise, self.measurement, self.tunable_para, self.horizon1, self.index], [self.E], ['s', 'c', 'n', 'm', 'tp', 'h1', 'ind'], ['Ef'])
         self.dJ_x0= (mtimes(mtimes(mtimes(inv(self.P0), self.H.T), self.R), self.measurement - mtimes(self.H, self.state)) + \
                     mtimes(mtimes(inv(self.P0), transpose(self.A)), self.costate))
         self.F0   = jacobian(self.dJ_x0, self.tunable_para)
-        self.F0_fn= Function('F0', [self.state, self.measurement, self.costate, self.tunable_para, self.horizon1, self.index],
-                             [self.F0], ['s', 'm', 'cs', 'tp', 'h1', 'ind'], ['F0f'])
+        self.F0_fn= Function('F0', [self.state, self.ctrl, self.noise, self.measurement, self.costate, self.tunable_para, self.horizon1, self.index],
+                             [self.F0], ['s', 'c', 'n', 'm', 'cs', 'tp', 'h1', 'ind'], ['F0f'])
 
-    def GetAuxSys(self, state_traj_opt, costate_traj_opt, model_QR, Y, track_e):
+    def GetAuxSys(self, state_traj_opt, costate_traj_opt, noise_traj_opt, model_QR, Y, ctrl, ref_pva):
         # statement = [hasattr(self, 'A_fn'), hasattr(self, 'D_fn'), hasattr(self, 'E_fn'), hasattr(self, 'F0_fn')]
         horizon = np.size(state_traj_opt, 0)
         # if not all(statement):
-        t_para = model_QR(track_e[-1])
+        if np.size(ctrl) == 0:
+            ctrl_f0 = np.array([[0, 0, -self.mass * 9.81]]).T
+            input_nn_QR = np.vstack((Y[-1], ref_pva))
+        else:
+            input_nn_QR = np.vstack((Y[-1], ref_pva))
+        t_para = model_QR(input_nn_QR)
         tunable_para = self.para(t_para)
         P = np.diag(tunable_para[0, 0:9])
         self.diffKKT(P)
@@ -420,7 +429,9 @@ class MHE:
             curr_s = state_traj_opt[0, :]
             curr_cs = costate_traj_opt[0, :]
             curr_m = Y[len(Y) - horizon]
-            matF = self.F0_fn(s=curr_s, m=curr_m, cs=curr_cs, tp=tunable_para, h1=horizon-1, ind=horizon-1)['F0f'].full()
+            curr_c = []
+            curr_n = []
+            matF = self.F0_fn(s=curr_s, c=curr_c, n=curr_n, m=curr_m, cs=curr_cs, tp=tunable_para, h1=horizon-1, ind=horizon-1)['F0f'].full()
             matH = self.H_fn(s=curr_s)['Hf'].full()
         else:
             for t in range(horizon - 1):
@@ -429,15 +440,17 @@ class MHE:
                 curr_m = Y[len(Y) - horizon + t]
                 next_s = state_traj_opt[t + 1, :]
                 next_m = Y[len(Y) - horizon + t + 1]
-                next_e = track_e[len(track_e) - horizon + t + 1]
+                curr_c = ctrl[len(ctrl) - horizon + 1 + t]
+                curr_n = noise_traj_opt[t, :]
+                # next_e = track_e[len(track_e) - horizon + t + 1]
                 if t == 0:
-                    matF = self.F0_fn(s=curr_s, m=curr_m, cs=curr_cs, tp=tunable_para, h1=horizon-1, ind=t)['F0f'].full()
-                matD += [self.D_fn(cs=curr_cs, tp=tunable_para, h1=horizon-1, ind=t)['Df'].full()]
-                t_para = model_QR(next_e)
-                tunable_para = self.para(t_para)
-                matE += [self.E_fn(s=next_s, m=next_m, tp=tunable_para, h1=horizon-1, ind=t)['Ef'].full()]
-                matA += [self.A_fn(s=curr_s)['Af'].full()]
-                matB = self.B_fn(s=curr_s)['Bf'].full()
+                    matF = self.F0_fn(s=curr_s, c=curr_c, n=curr_n, m=curr_m, cs=curr_cs, tp=tunable_para, h1=horizon-1, ind=t)['F0f'].full()
+                matD += [self.D_fn(cs=curr_cs, s= curr_s, c=curr_c, n=curr_n, tp=tunable_para, h1=horizon-1, ind=t)['Df'].full()]
+                # t_para = model_QR(next_e)
+                # tunable_para = self.para(t_para)
+                matE += [self.E_fn(s=next_s, c=curr_c, n=curr_n, m=next_m, tp=tunable_para, h1=horizon-1, ind=t)['Ef'].full()]
+                matA += [self.A_fn(s=curr_s, c=curr_c, n=curr_n)['Af'].full()]
+                matB = self.B_fn(s=curr_s, c=curr_c, n=curr_n)['Bf'].full()
                 matH = self.H_fn(s=curr_s)['Hf'].full()
 
         auxSys = {"matA": matA,
@@ -493,7 +506,13 @@ class Auxiliary_MHE:
         self.J_B = J_B
         self.R_B_v = R_B_v
         # self.loss = dot(traj_e, traj_e)
-        self.loss = 1 / 2 * dot(self.ex_v, self.ex_v) + 1 / 2 * self.mass * dot(self.ev_v, self.ev_v)
+        error = vertcat(self.ex_v[0, 0]**2, self.ex_v[1, 0]**2, self.ex_v[2, 0]**2,
+                        self.ev_v[0, 0]**2, self.ev_v[1, 0]**2, self.ev_v[2, 0]**2)
+        weight_loss = exp(error)/sum1(exp(error))
+        # self.loss = 1 / 2 * dot(self.ex_v, self.ex_v) + 1 / 2 * dot(self.ev_v, self.ev_v)
+        self.loss = weight_loss[0, 0]*self.ex_v[0, 0]**2 + weight_loss[1, 0]*self.ex_v[1, 0]**2 + \
+                    weight_loss[2, 0]*self.ex_v[2, 0]**2 + weight_loss[3, 0]*self.ev_v[0, 0]**2 + \
+                    weight_loss[4, 0]*self.ev_v[1, 0]**2 + weight_loss[5, 0]*self.ev_v[2, 0]**2
         # Define the discrete dynamics using Euler method
         self.Dyn  = self.state_v + self.DT*self.dyn
 
@@ -511,10 +530,10 @@ class Auxiliary_MHE:
 
     def para(self, para_bar):
         P_min = 0
-        P_max = 1e-1
+        P_max = 1
         gammar_min = 0
-        gammar_max = 5e-1
-        gammaq_min = 5e-1
+        gammar_max = 1
+        gammaq_min = 0
         gammaq_max = 1
         R_min = 0
         R_max = 1e2
@@ -534,12 +553,17 @@ class Auxiliary_MHE:
         tunable_para[0, 16]= gammaq_min + (gammaq_max - gammaq_min)*tunable[0, 16]
         return  tunable_para
 
-    def AuxMHESolver(self, matA, matB, matD, matE, matF, matH, model_QR, track_e):
+    def AuxMHESolver(self, matA, matB, matD, matE, matF, matH, model_QR, track_e, Y, ctrl, ref_pva, x_hatmh):
         # statement = [hasattr(self, 'matA'), hasattr(self, 'matB'), hasattr(self, 'matD'), hasattr(self, 'matE'),
         #             hasattr(self, 'matF'), hasattr(self, 'P0'), hasattr(self, 'R'), hasattr(self, 'Q')]
         # if not all(statement):
         self.SetDyn_Cost(matA, matB, matD, matE, matF, matH)
-        t_para = model_QR(track_e[-1])
+        if np.size(ctrl) == 0:
+            ctrl_f0 = np.array([[0, 0, -self.mass * 9.81]]).T
+            input_nn_QR = np.vstack((Y[-1], ref_pva))
+        else:
+            input_nn_QR = np.vstack((Y[-1], ref_pva))
+        t_para = model_QR(input_nn_QR)
         tunable_para = self.para(t_para)
         self.SetPara(tunable_para, self.horizon-1, 0)
 
@@ -612,16 +636,25 @@ class Auxiliary_MHE:
         dp_ctrl = np.zeros((1, self.n_ctrl_gain))
         # Initialize the loss
         loss_track = 0
+        if self.horizon>=3:
+            Loss_track = np.zeros(self.horizon - 2)
+        else:
+            Loss_track = []
+        for tl in range(self.horizon-2):
+            dloss_track = self.loss_tracking(ref[len(ref) - self.horizon + 2 + tl], Y[len(Y) - self.horizon + 1 + tl])
+            Loss_track[tl] = dloss_track
+        weight = 10*np.exp(Loss_track)/np.sum(np.exp(Loss_track))
+
         for t in range(self.horizon-2):
             # Replace states in xmhe_traj with Y except estimated disturbance
             x_mhe = xmhe_traj[t, :]
             x_mhe = np.reshape(x_mhe, (self.n_xmhe, 1))
             x_mhe[0:6, 0] = Y[len(Y)-self.horizon+t][0:6, 0]
             # Compute the loss
-            dloss_track = self.loss_tracking(ref[len(ref)-self.horizon+2+t], Y[len(Y)-self.horizon+1+t])
-            loss_track += dloss_track
+            dloss_track = weight[t] * self.loss_tracking(ref[len(ref)-self.horizon+2+t], Y[len(Y)-self.horizon+1+t])
+            loss_track +=  dloss_track
             # Compute the gradient of loss w.r.t control
-            dlds = Ddlds_fn(s=Y[len(Y)-self.horizon+1+t], ref=ref[len(ref)-self.horizon+2+t])['dldsf'].full()
+            dlds = weight[t] * Ddlds_fn(s=Y[len(Y)-self.horizon+1+t], ref=ref[len(ref)-self.horizon+2+t])['dldsf'].full()
             dsdu = Ddyndu_fn(s=Y[len(Y)-self.horizon+t], R_b=R_b[len(R_b)-self.horizon+1+t])['Ddynduf'].full()
             dldu = np.matmul(dlds, dsdu)
             # Compute the gradient of loss w.r.t MHE weight

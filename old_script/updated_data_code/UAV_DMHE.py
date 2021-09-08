@@ -15,7 +15,7 @@ from numpy import linalg as LA
 
 
 """---------------------------------Learn or Evaluate?-------------------------------------"""
-train = True
+train = False
 
 """---------------------------------Type of disturbance?-----------------------------------"""
 constant_dis = False
@@ -24,7 +24,7 @@ constant_dis = False
 # Sys_para = np.array([2.5, 0.0291, 0.0291, 0.0467, 0.225, 1.29e-5, 1.74e-7])
 # Initial parameters are used in the paper 'Backstepping Sliding-mode and Cascade Active
 # Disturbance Rejection Control for a Quadrotor UAV' IEEE/ASME Transactions on Mechatronics
-Sys_para = np.array([1.74, 0.5769, 0.573, 0.2475, 0.21, 9e-8, 1.74e-7])
+Sys_para = np.array([1.8, 0.5769, 0.573, 0.2475, 0.21, 9e-8, 1.74e-7])
 # The above inertial parameters are provided by Zhentian Ma
 u_max = 12000 # 12000 pm, the maximum rotation speed per minute
 u_min = 0
@@ -35,11 +35,11 @@ IGE_para = np.array([0.44, 1.8, 0.1])
 # Simulation time-step
 T_step = 1e-2
 # Sampling time-step
-dt_sample = 5e-2
+dt_sample = 4e-2
 uav = UavEnv.quadrotor(Sys_para, IGE_para, dt_sample)
 uav.Model()
 # Initial states
-r_I0 = np.array([[0, 0, -1]]).T # column vector
+r_I0 = np.array([[0, 0, 0]]).T # column vector
 p_I0 = np.array([[0, 0, -0.05]]).T
 vp_I0= np.array([[0, 0, 0]]).T
 v_I0 = np.array([[0, 0, 0]]).T
@@ -52,13 +52,15 @@ dt_B0 = np.array([[0, 0, 0]]).T  # disturbance torque in body frame
 state0 = np.vstack((r_I0, v_I0, R_Bv0, w_B0))
 Xmhe0 = np.vstack((r_I0, v_I0, df_I0, R_Bv0, w_B0, dt_B0)) # CANNOT define the type as vertcat!!!!
 
-
-horizon = 10 # previous 30
+# Load trajectory data
+filename = 'waypoints'
+traj_waypoints = np.loadtxt(filename)
+horizon = 25 # previous 30
 # Time interval of taking-off
 t_end = 5
 # Time interval of an episode
-t_ep  = 10
-t_epv = 10
+t_ep  = dt_sample * (np.size(traj_waypoints, 0)-25)
+t_epv = dt_sample * (np.size(traj_waypoints, 0)-5)
 # Iteration number
 N = int(t_ep / T_step)
 N_ev = int(t_epv/T_step)
@@ -69,13 +71,13 @@ lr_r  = 1e-4
 N_train = 20
 """---------------------------------Define parameterization model-----------------------------"""
 # Define neural network for process noise
-D_in, D_h, D_out_p = 6, 50, 20
+D_in, D_h, D_out_p = 12, 50, 20
 model_QR = uavNN.Net(D_in, D_h, D_out_p)
 P_min = 0
-P_max = 1e-1
+P_max = 1
 gammar_min = 0
-gammar_max = 5e-1
-gammaq_min = 5e-1
+gammar_max = 1
+gammaq_min = 0
 gammaq_max = 1
 R_min = 0
 R_max = 1e2
@@ -92,10 +94,10 @@ para_jaco = np.diag(para_bound[0])
 
 def para(para_bar):
     P_min = 0
-    P_max = 1e-1
+    P_max = 1
     gammar_min = 0
-    gammar_max = 5e-1
-    gammaq_min = 5e-1
+    gammar_max = 1
+    gammaq_min = 0
     gammaq_max = 1
     R_min = 0
     R_max = 1e2
@@ -116,14 +118,14 @@ def para(para_bar):
     return tunable_para
 
 # Parameterize control gain
-D_in, D_h, D_out = 6, 20, 6
+D_in, D_h, D_out = 12, 20, 6
 model_gain = uavNN.NetCtrl(D_in, D_h, D_out)
-gp_min = 10  # lower bound of position control gain
-gp_max = 25  # upper bound of position control gain
+gp_min = 5  # lower bound of position control gain
+gp_max = 20  # upper bound of position control gain
 gv_min = 1e-1  # lower bound of attitude control gain, previous value was 1e-3
 gv_max = 5   # upper bound of attitude control gain
 ctrl_gain_jaco = np.diag([(gp_max-gp_min), (gp_max-gp_min), (gp_max-gp_min),
-                          (gp_max-gp_min), (gp_max-gp_min), (gp_max-gp_min)])
+                          (gv_max-gv_min), (gv_max-gv_min), (gv_max-gv_min)])
 def control_gain(nn_gain):
     ctrl_gain = np.zeros((1, 6))
     for i in range(6):
@@ -185,7 +187,7 @@ def Reference(Coeff_x, Coeff_y, Coeff_z, time, t_end, target):
 
 """---------------------------------Define controller---------------------------------------"""
 # Controller
-nn_gain0 = model_gain(np.zeros((6, 1)))
+nn_gain0 = model_gain(np.zeros((12, 1)))
 ctrl_gain0 = control_gain(nn_gain0)
 GeoCtrl = Robust_Flight.Controller(Sys_para, uav.X, uav.Xmhe)
 # Random initial x and y postions
@@ -201,7 +203,7 @@ ctrl0 = GeoCtrl.ctrl_mapping(Tfin, tau_cin)
 
 """---------------------------------Define MHE----------------------------------------------"""
 
-uavMHE = Robust_Flight.MHE(horizon, dt_sample)
+uavMHE = Robust_Flight.MHE(Sys_para, horizon, dt_sample)
 uavMHE.SetStateVariable(uav.Xmhe_p)
 uavMHE.SetOutputVariable(uav.output_p)
 uavMHE.SetControlVariable(uav.f_d)
@@ -230,6 +232,7 @@ p_Is = np.zeros((3, N_ev+1))
 v_Is = np.zeros((3, N_ev+1))
 Euler = np.zeros((3, N_ev+1))
 w_Bs = np.zeros((3, N_ev+1))
+
 # Tunable parameters
 Tunable_para = np.zeros(((int(N_ev/ratio_inv)+1), D_out_p))
 # Control gain
@@ -242,9 +245,7 @@ def Train():
     Loss = []
     # Training times
     Time_t = []
-    # Load trajectory data
-    filename = 'waypoints'
-    traj_waypoints = np.loadtxt(filename)
+
     for i in range(N_train):
         # Initial time
         time = 0
@@ -253,9 +254,8 @@ def Train():
         # Initial states
         P_xy0 = np.random.normal(0, 0, 2)
         print('P_xy0=', P_xy0)
-        r_I0  = np.array([[P_xy0[0], P_xy0[1], -1]]).T
+        r_I0  = np.array([[P_xy0[0], P_xy0[1], 0]]).T
         state = np.vstack((r_I0, v_I0, R_Bv0, w_B0))
-
         x_hatmh = np.vstack((r_I0, v_I0, df_I0))
         xmhe_traj = x_hatmh
         R_Bd  = R_Bd0
@@ -284,8 +284,16 @@ def Train():
         Y += [state_m]
         Y_p = []
         Y_p += [y_p]
+        # Initialize the reference trajectory
+        kr = 0
+        ref_p = np.array([[traj_waypoints[kr, 0], traj_waypoints[kr, 1], -traj_waypoints[kr, 2]]]).T
+        ref_v = np.array([[traj_waypoints[kr, 3], traj_waypoints[kr, 4], -traj_waypoints[kr, 5]]]).T
+        ref_dv = np.array([[traj_waypoints[kr, 6], traj_waypoints[kr, 7], -traj_waypoints[kr, 8]]]).T
+        ref_pva = np.vstack((ref_p, ref_v))
+        ctrl_f0 = np.array([[0, 0, -Sys_para[0]*9.81]]).T
+        input_nn_QR = np.vstack((Y_p[-1], ref_pva))
         # Initialize the tunable parameters
-        t_para = model_QR(track_e[-1])
+        t_para = model_QR(input_nn_QR)
         tunable_para0= para(t_para)
         print('learned', i, 'tunable_para0=', tunable_para0)
         # Reference list
@@ -303,35 +311,47 @@ def Train():
         wf   = np.random.normal(10, 2, 1)
         At   = np.random.normal(0, 0, 1)
         tsquare = np.random.normal(0, 0.1, 5)
-        amplify = np.random.normal(2.5, 0.5, 2)
+        amplify = np.random.normal(3, 0.2, 2)
         # Flag for breaking the episode
         flag = 0
         # Sum of loss
         sum_loss = 0.0
         # index for LOSS in each episode
         j_loss = 0
-        payload_mass = np.random.normal(0.5, 0.1, 1)
-        time_pay = np.random.normal(4.5, 0.1, 1)
+        payload_mass = np.random.normal(0.4, 0.05, 1)
+        time_pay = np.random.normal(3, 0.1, 1)
+        a_I_p = []
         a_I_new = np.zeros((3, 1))
-        kr = 0
+        for ia in range(20):
+            a_I_p += [a_I_new]
+
         for j in range(N):
-            if j % 5 == 0:
-                ref_p = np.array([[traj_waypoints[kr, 0], traj_waypoints[kr, 1], -traj_waypoints[kr, 2]]]).T
-                ref_v = np.array([[traj_waypoints[kr, 3], traj_waypoints[kr, 4], -traj_waypoints[kr, 5]]]).T
-                ref_dv = np.array([[traj_waypoints[kr, 6], traj_waypoints[kr, 7], -traj_waypoints[kr, 8]]]).T
-                b1_d = np.array([[1, 0, 0]]).T
+            if j % 4 == 0:
+                if kr <= (np.size(traj_waypoints, 0)-1):
+                    ref_p = np.array([[traj_waypoints[kr, 0], traj_waypoints[kr, 1], -traj_waypoints[kr, 2]]]).T
+                    ref_v = np.array([[traj_waypoints[kr, 3], traj_waypoints[kr, 4], -traj_waypoints[kr, 5]]]).T
+                    ref_dv = np.array([[traj_waypoints[kr, 6], traj_waypoints[kr, 7], -traj_waypoints[kr, 8]]]).T
+                    ref_pva  = np.vstack((ref_p, ref_v))
+                    b1_d = np.array([[1, 0, 0]]).T
+                else:
+                    ref_p = np.array([[traj_waypoints[-1, 0], traj_waypoints[-1, 1], -traj_waypoints[-1, 2]]]).T
+                    ref_v = np.array([[traj_waypoints[-1, 3], traj_waypoints[-1, 4], -traj_waypoints[-1, 5]]]).T
+                    ref_dv = np.array([[traj_waypoints[-1, 6], traj_waypoints[-1, 7], -traj_waypoints[-1, 8]]]).T
+                    ref_pva = np.vstack((ref_p, ref_v))
+                    b1_d = np.array([[1, 0, 0]]).T
                 kr += 1
             if (j % ratio_inv) == 0:
                 # Solve MHE to obtain the estimated state trajectory within a horizon
-                opt_sol = uavMHE.MHEsolver(Y_p, track_e, x_hatmh, xmhe_traj, ctrl_f, model_QR, k, R_B)
+                opt_sol = uavMHE.MHEsolver(Y_p, track_e, x_hatmh, xmhe_traj, ctrl_f, model_QR, k, R_B, ref_pva)
                 xmhe_traj = opt_sol['state_traj_opt']
                 costate_traj = opt_sol['costate_traj_opt']
+                noise_traj = opt_sol['noise_traj_opt']
                 # Establish the auxiliary MHE system
-                auxSys = uavMHE.GetAuxSys(xmhe_traj, costate_traj, model_QR, Y_p, track_e)
+                auxSys = uavMHE.GetAuxSys(xmhe_traj, costate_traj, noise_traj, model_QR, Y_p, ctrl_f, ref_pva)
                 matA, matB, matH = auxSys['matA'], auxSys['matB'], auxSys['matH']
                 matD, matE, matF = auxSys['matD'], auxSys['matE'], auxSys['matF']
                 # Solve the auxiliary MHE system to obtain the gradient
-                gra_opt = uavDMHE.AuxMHESolver(matA, matB, matD, matE, matF, matH, model_QR, track_e)
+                gra_opt = uavDMHE.AuxMHESolver(matA, matB, matD, matE, matF, matH, model_QR, track_e, Y_p, ctrl_f, ref_pva, x_hatmh)
                 X_opt = gra_opt['state_gra_traj']
                 if time>(horizon*dt_sample):
                     # Update x_hatmh based on xmhe_traj
@@ -350,7 +370,12 @@ def Train():
                 # Coeff_x, Coeff_y, Coeff_z = polynomial_ref(t_end, target, P_xy0)
                 # ref = Reference(Coeff_x, Coeff_y, Coeff_z, time, t_end, target)
                 # ref_p, ref_v, ref_dv, b1_d = ref['ref_p'], ref['ref_v'], ref['ref_a'], ref['b1_d']
-                input_gain = np.vstack((track_e[-1]))
+                if np.size(ctrl) == 0:
+                    # ctrl_f0 = np.array([[0, 0, -self.mass * 9.81]]).T
+                    input_gain = np.vstack((Y_p[-1], ref_pva))
+                else:
+                    input_gain = np.vstack((Y_p[-1], ref_pva))
+
                 nn_gain = model_gain(input_gain)
                 ctrl_gain = control_gain(nn_gain)
                 # ctrl_gain = np.array([[12, 12, 12, 2.5, 2.5, 2.5]])
@@ -389,14 +414,40 @@ def Train():
 
             # Take a next step from the environment
             a_noise = np.random.normal(0, 1e-3, 3)
-            if time > time_pay[0]:
-                p_mass = 1/2*payload_mass[0]
+            if time > 3*time_pay[0]:
+                p_mass = 0.5*payload_mass[0]
+            elif time > 2*time_pay[0]:
+                p_mass = 1 * payload_mass[0] # 2
+            elif time > time_pay[0]:
+                p_mass = 0.2 * payload_mass[0]
             else:
-                p_mass = payload_mass[0]
-            dis, T = uav.Aerodynamics(state, a_I_new, ctrl[-1], constant_dis, a_noise, p_mass, None)
+                p_mass = 1*payload_mass[0]
+            Delay = np.random.normal(15, 0.1, 1)
+            delay = Delay[0]
+            delay = int(delay)
+            # if time <= 2:
+            #     aero_para = np.array([[dfxy[0], dfxy[1], dfz[0], dt[0], dt[1], dt[2]]]).T
+            # elif time <= 4:
+            #     aero_para = amplify[0] * np.array([[dfxy[0], dfxy[1], dfz[0], dt[0], dt[1], dt[2]]]).T
+            # elif time <= 6:
+            #     aero_para = np.array([[dfxy[0], dfxy[1], dfz[0], dt[0], dt[1], dt[2]]]).T
+            # elif time <= 8:
+            #     aero_para = amplify[1] * np.array([[dfxy[0], dfxy[1], dfz[0], dt[0], dt[1], dt[2]]]).T
+            # elif time <= 10:
+            #     aero_para = np.array([[dfxy[0], dfxy[1], dfz[0], dt[0], dt[1], dt[2]]]).T
+            # else:
+            #     # aero_para = amplify[0] * np.array([[dfxy[0], dfxy[1], dfz[0], dt[0], dt[1], dt[2]]]).T
+            #     # wf = np.random.normal(10, 0.2, 1)
+            #     dfx = dfxy[0] + Afxy[0] * np.sin(wf[0] * (time - 10))
+            #     dfy = dfxy[1] + Afxy[1] * np.sin(wf[0] * (time - 10))
+            #     Dfz = dfz[0] + Afz[0] * np.sin(wf[0] * (time - 10))
+            #     dts = At[0] * np.sin(wf[0] * (time - 10))
+            #     aero_para = np.array([[dfx, dfy, Dfz, dts, dts, dts]]).T
+            # constant_dis = True
+            dis = uav.Aerodynamics(state, a_I_p[-delay], ctrl[-1], constant_dis, a_noise, p_mass, None)
 
-            print('sample=', k, 'Tension=', T)
-            print('sample=', k, 'Dis_x=', dis[0, 0], 'dt_Imh_x=', df_Imh[0, 0], 'Dis_z=', dis[2, 0], 'df_Imh_z=', df_Imh[2, 0])
+            # print('sample=', k, 'Tension=', T)
+            print('sample=', k, 'Dis_x=', dis[0, 0], 'df_Imh_x=', df_Imh[0, 0], 'Dis_z=', dis[2, 0], 'df_Imh_z=', df_Imh[2, 0])
             zeros_rotor = np.where(ctrl[-1]==0)[0]
             if np.size(zeros_rotor)>=2:
                 flag += 1
@@ -427,7 +478,12 @@ def Train():
                 dldp = np.matmul(dp, para_jaco)
                 dldg = np.matmul(dp_ctrl, ctrl_gain_jaco)
                 # Train the neural network
-                t_para = model_QR(track_e[-1])
+                if np.size(ctrl_f) == 0:
+                    ctrl_f0 = np.array([[0, 0, -Sys_para[0] * 9.81]]).T
+                    input_nn_QR = np.vstack((Y_p[-1], ref_pva))
+                else:
+                    input_nn_QR = np.vstack((Y_p[-1], ref_pva))
+                t_para = model_QR(input_nn_QR)
                 loss_nn_p = model_QR.myloss(t_para, dldp)
                 loss_nn_g = model_gain.myloss(nn_gain, dldg)
                 optimizer_p = torch.optim.Adam(model_QR.parameters(), lr=lr_nn)
@@ -456,6 +512,7 @@ def Train():
             time += T_step
             state = state_next
             a_I_new = a_I_next
+            a_I_p += [a_I_new]
             print('learning=', i+1, 'time=', time, 'position', r_I.T, 'control=', ctrl[-1].T, 'attitude', euler)
             if j == (N-1):
                 # Save the loss and training time
@@ -466,11 +523,18 @@ def Train():
                 np.save('Loss', Loss)
                 np.save('Time_t', Time_t)
 
-        # Save the trained NN weights
-        PATH1 = "Trained_model_QR.pt"
-        torch.save(model_QR, PATH1)
-        PATH2 = "Trained_model_gain.pt"
-        torch.save(model_gain, PATH2)
+        if i == 0:
+            # Save the trained NN weights
+            PATH1 = "Trained_model_QR0.pt"
+            torch.save(model_QR, PATH1)
+            PATH2 = "Trained_model_gain0.pt"
+            torch.save(model_gain, PATH2)
+        else:
+            PATH1 = "Trained_model_QR.pt"
+            torch.save(model_QR, PATH1)
+            PATH2 = "Trained_model_gain.pt"
+            torch.save(model_gain, PATH2)
+
         np.save('LOSS', LOSS)
         np.save('J_loss', J_loss)
 
@@ -489,7 +553,7 @@ def Evaluate():
     # Initial states
     P_xy0 = np.random.normal(0, 0, 2)
     np.save('P_xy0', P_xy0)
-    r_I0 = np.array([[P_xy0[0], P_xy0[1], -1]]).T
+    r_I0 = np.array([[P_xy0[0], P_xy0[1], 0]]).T
     state = np.vstack((r_I0, v_I0, R_Bv0, w_B0))
     x_hatmh = np.vstack((r_I0, v_I0, df_I0))
     xmhe_traj = x_hatmh
@@ -525,17 +589,29 @@ def Evaluate():
     track_e = []
     track_e += [np.zeros((6, 1))]
     # Initialize the tunable parameters
-    t_para = model_QR(track_e[-1])
+    # Initialize the reference trajectory
+    kr = 0
+    ref_p = np.array([[traj_waypoints[kr, 0], traj_waypoints[kr, 1], -traj_waypoints[kr, 2]]]).T
+    ref_v = np.array([[traj_waypoints[kr, 3], traj_waypoints[kr, 4], -traj_waypoints[kr, 5]]]).T
+    ref_dv = np.array([[traj_waypoints[kr, 6], traj_waypoints[kr, 7], -traj_waypoints[kr, 8]]]).T
+    ref_pva = np.vstack((ref_p, ref_v))
+    ctrl_f0 = np.array([[0, 0, -Sys_para[0] * 9.81]]).T
+    input_nn_QR = np.vstack((Y_p[-1], ref_pva))
+    # Initialize the tunable parameters
+    t_para = model_QR(input_nn_QR)
     tunable_para0 = para(t_para)
     Tunable_para[0, :] = tunable_para0
     print('learned', 0, 'tunable_para0=', tunable_para0)
 
     # Set initial disturbance
     ctrl0 = np.zeros((4, 1))
-    payload_mass = 0.5
+    payload_mass = 0
+    a_I_p = []
     a_I_new = np.zeros((3, 1))
+    for ia in range(15):
+        a_I_p += [a_I_new]
     a_noise = np.random.normal(0, 1e-3, 3)
-    dis0, T = uav.Aerodynamics(state, a_I_new, ctrl0, constant_dis, a_noise, payload_mass, None)
+    dis0 = uav.Aerodynamics(state, a_I_p[-3], ctrl0, constant_dis, a_noise, payload_mass, None)
     # Store initial conditions
     r_Is[:, 0:1] = r_I0
     p_Is[:, 0:1] = p_I0
@@ -571,21 +647,30 @@ def Evaluate():
     act_z[0] = -1
     # open a file
     a_file = open("flight_test.txt", "w")
-    kr = 0
+
     for j in range(N_ev):
-        if j % 5 == 0:
-            ref_p = np.array([[traj_waypoints[kr, 0], traj_waypoints[kr, 1], -traj_waypoints[kr, 2]]]).T
-            ref_v = np.array([[traj_waypoints[kr, 3], traj_waypoints[kr, 4], -traj_waypoints[kr, 5]]]).T
-            ref_dv = np.array([[traj_waypoints[kr, 6], traj_waypoints[kr, 7], -traj_waypoints[kr, 8]]]).T
-            b1_d = np.array([[1, 0, 0]]).T
+        if j % 4 == 0:
+            if kr <= (np.size(traj_waypoints, 0) - 1):
+                ref_p = np.array([[traj_waypoints[kr, 0], traj_waypoints[kr, 1], -traj_waypoints[kr, 2]]]).T
+                ref_v = np.array([[traj_waypoints[kr, 3], traj_waypoints[kr, 4], -traj_waypoints[kr, 5]]]).T
+                ref_dv = np.array([[traj_waypoints[kr, 6], traj_waypoints[kr, 7], -traj_waypoints[kr, 8]]]).T
+                ref_pva = np.vstack((ref_p, ref_v))
+                b1_d = np.array([[1, 0, 0]]).T
+            else:
+                ref_p = np.array([[traj_waypoints[-1, 0], traj_waypoints[-1, 1], -traj_waypoints[-1, 2]]]).T
+                ref_v = np.array([[traj_waypoints[-1, 3], traj_waypoints[-1, 4], -traj_waypoints[-1, 5]]]).T
+                ref_dv = np.array([[traj_waypoints[-1, 6], traj_waypoints[-1, 7], -traj_waypoints[-1, 8]]]).T
+                ref_pva = np.vstack((ref_p, ref_v))
+                b1_d = np.array([[1, 0, 0]]).T
             kr +=1
         if (j % ratio_inv) == 0:
             # Solve MHE to obtain the estimated state trajectory within a horizon
-            opt_sol = uavMHE.MHEsolver(Y_p, track_e, x_hatmh, xmhe_traj, ctrl_f, model_QR, k, R_B)
+            opt_sol = uavMHE.MHEsolver(Y_p, track_e, x_hatmh, xmhe_traj, ctrl_f, model_QR, k, R_B, ref_pva)
             xmhe_traj = opt_sol['state_traj_opt']
             costate_traj = opt_sol['costate_traj_opt']
+            noise_traj = opt_sol['noise_traj_opt']
             # Establish the auxiliary MHE system
-            auxSys = uavMHE.GetAuxSys(xmhe_traj, costate_traj, model_QR, Y_p, track_e)
+            auxSys = uavMHE.GetAuxSys(xmhe_traj, costate_traj, noise_traj, model_QR, Y_p, ctrl_f, ref_pva)
             matA, matB, matH = auxSys['matA'], auxSys['matB'], auxSys['matH']
             matD, matE, matF = auxSys['matD'], auxSys['matE'], auxSys['matF']
             if time > (horizon * dt_sample):
@@ -603,10 +688,14 @@ def Evaluate():
             # Coeff_x, Coeff_y, Coeff_z = polynomial_ref(t_end, target, P_xy0)
             # ref = Reference(Coeff_x, Coeff_y, Coeff_z, time, t_end, target)
             # ref_p, ref_v, ref_dv, b1_d = ref['ref_p'], ref['ref_v'], ref['ref_a'], ref['b1_d']
-            input_gain = np.vstack((track_e[-1]))
+            if np.size(ctrl) == 0:
+                # ctrl_f0 = np.array([[0, 0, -self.mass * 9.81]]).T
+                input_gain = np.vstack((Y_p[-1], ref_pva))
+            else:
+                input_gain = np.vstack((Y_p[-1], ref_pva))
             nn_gain = model_gain(input_gain)
             ctrl_gain = control_gain(nn_gain)
-            # ctrl_gain = np.array([[12, 12, 12, 2.5, 2.5, 2.5]]) # 12, 12, 12, 2.5, 2.5, 2.5 for T_step = 1e-2, dt_sample = 5e-2
+            # ctrl_gain = np.array([[5, 5, 5, 2.5, 2.5, 2.5]]) # 12, 12, 12, 2.5, 2.5, 2.5 for T_step = 1e-2, dt_sample = 5e-2
             print('sample=', k, 'control_gain=', ctrl_gain)
             Control_gain[k, :] = ctrl_gain
             R_Bd_next, Tf, e_x, e_v, fd = GeoCtrl.position_ctrl(ctrl_gain, Y[-1], ref_p, ref_v, ref_dv, b1_d, df_Imh)
@@ -637,12 +726,14 @@ def Evaluate():
             R_B += [R_bc]
 
         # Take a next step from the environment
-        a_noise = np.random.normal(0, 1e-3, 3)
-        if time>6:
-            p_mass = 0*payload_mass
+        a_noise = np.random.normal(0, 1e-2, 3)
+        if time>10:
+            p_mass = 0
+        elif time > 5:
+            p_mass = 0.6
         else:
-            p_mass = payload_mass
-        dis, T = uav.Aerodynamics(state, a_I_new, ctrl[-1], constant_dis, a_noise, p_mass, None)
+            p_mass = 0
+        dis = uav.Aerodynamics(state, a_I_p[-15], ctrl[-1], constant_dis, a_noise, p_mass, None)
 
         # Store disturbance ground truth
         D_G[:, (j+1):(j+2)] = dis
@@ -675,7 +766,12 @@ def Evaluate():
             k += 1
             time_s += dt_sample
             Time_s[k] = time_s
-            t_para = model_QR(Y_p[-1])
+            if np.size(ctrl_f) == 0:
+                ctrl_f0 = np.array([[0, 0, -Sys_para[0] * 9.81]]).T
+                input_nn_QR = np.vstack((Y_p[-1], ref_pva))
+            else:
+                input_nn_QR = np.vstack((Y_p[-1], ref_pva))
+            t_para = model_QR(input_nn_QR)
             tunable_para = para(t_para)
             Tunable_para[k, :] = tunable_para
             # Store loss function and estimated disturbance
@@ -702,6 +798,7 @@ def Evaluate():
         time += T_step
         state = state_next
         a_I_new = a_I_next
+        a_I_p += [a_I_new]
         Time[j + 1] = time
         print('time=', time, 'sample=', k, 'position=', r_I.T, 'control=', ctrl[-1].T, 'attitude', euler)
     np.save('Dis_t', Dis_t)
@@ -728,7 +825,7 @@ def Evaluate():
     Loss   = np.load('Loss.npy')
     plt.figure(1)
     plt.plot(Time_t, Loss, linewidth=1.5)
-    plt.xlabel('Number of training')
+    plt.xlabel('Number of episodes')
     plt.ylabel('Mean loss')
     plt.grid()
     plt.savefig('./mean_loss_train.png')
@@ -763,32 +860,63 @@ def Evaluate():
     plt.show()
     # Tunable parameters
     plt.figure(5)
+    plt.plot(Time_s, Tunable_para[:, 0], linewidth=1.5)
+    plt.xlabel('Time [s]')
+    plt.ylabel('p1')
+    plt.grid()
+    plt.savefig('./tunable_p_train.png')
+    plt.show()
+    # Tunable parameters
+    plt.figure(6)
     plt.plot(Time_s, Tunable_para[:, 9], linewidth=1.5)
     plt.xlabel('Time [s]')
-    plt.ylabel('Gamma_r')
+    plt.ylabel('gamma1')
     plt.grid()
-    plt.savefig('./tunable_para_train.png')
+    plt.savefig('./tunable_gamma1_train.png')
+    plt.show()
+    plt.figure(7)
+    plt.plot(Time_s, Tunable_para[:, 10], linewidth=1.5)
+    plt.xlabel('Time [s]')
+    plt.ylabel('r1')
+    plt.grid()
+    plt.savefig('./tunable_r1_train.png')
+    plt.show()
+    plt.figure(8)
+    plt.plot(Time_s, Tunable_para[:, 16], linewidth=1.5)
+    plt.xlabel('Time [s]')
+    plt.ylabel('gamma2')
+    plt.grid()
+    plt.savefig('./tunable_gamma2_train.png')
+    plt.show()
+    plt.figure(9)
+    plt.plot(Time_s, Tunable_para[:, 17], linewidth=1.5)
+    plt.xlabel('Time [s]')
+    plt.ylabel('q1')
+    plt.grid()
+    plt.savefig('./tunable_q1_train.png')
     plt.show()
     # Control gain
-    plt.figure(6)
+    plt.figure(10)
     plt.plot(Time_s[0:int(N_ev/ratio_inv)], Control_gain[:, -6], linewidth=1.5)
     plt.xlabel('Time [s]')
     plt.ylabel('Position control gain')
     plt.grid()
     plt.savefig('./control_gain_train.png')
     plt.show()
-    # Altitude tracking error
-    plt.figure(7)
+    # Trajectory
+    plt.figure(11)
     ax = plt.axes(projection="3d")
     ax.plot3D(act_x, act_y, -act_z, linewidth=1.5)
     ax.plot3D(ref_x, ref_y, -ref_z, linewidth=1, linestyle='--')
     plt.legend(['Actual', 'Desired'])
     plt.xlabel('x [m]')
     plt.ylabel('y [m]')
+    # plt.zlabel('z [m]')
     plt.grid()
     plt.savefig('./tracking_3D.png')
     plt.show()
-    plt.figure(8)
+
+    plt.figure(12)
     plt.plot(act_x, act_y,  linewidth=1.5)
     plt.plot(ref_x, ref_y, linewidth=1, linestyle='--')
     plt.legend(['Actual', 'Desired'])
@@ -796,6 +924,14 @@ def Evaluate():
     plt.ylabel('y [m]')
     plt.grid()
     plt.savefig('./tracking_2D.png')
+    plt.show()
+    # Altitude tracking error
+    plt.figure(13)
+    plt.plot(Time_s, eZ, linewidth=1.5)
+    plt.xlabel('time [s]')
+    plt.ylabel('ez [m]')
+    plt.grid()
+    plt.savefig('./tracking_error.png')
     plt.show()
 
 

@@ -32,10 +32,9 @@ class quadrotor:
             horzcat(self.r21, self.r22, self.r23),
             horzcat(self.r31, self.r32, self.r33)
         )
-        # Quaternion
-        q0, q1, q2, q3 = SX.sym('q0'), SX.sym('q1'), SX.sym('q2'), SX.sym('q3')
-        self.quater = vertcat(q0, q1, q2, q3) 
-
+        self.R_B_h = horzcat(self.r11, self.r12, self.r13,
+                             self.r21, self.r22, self.r23,
+                             self.r31, self.r32, self.r33)
         # Angular velocity in body frame
         self.wx, self.wy, self.wz    = SX.sym('wx'), SX.sym('wy'), SX.sym('wz')
         self.w_B      = vertcat(self.wx, self.wy, self.wz)
@@ -81,45 +80,37 @@ class quadrotor:
         v_I = vertcat(state_p_mh[3], state_p_mh[4], state_p_mh[5])
         df_I = vertcat(state_p_mh[6], state_p_mh[7], state_p_mh[8])
         dp_I = v_I
-        dv_I = 1 / self.mass * (-self.mass * g * z + mtimes(R_b, mtimes(transpose(f_d), mtimes(R_b, z)) * z) + df_I)
+        dv_I = 1 / self.mass * (self.mass * g * z - mtimes(R_b, mtimes(transpose(f_d), mtimes(R_b, z)) * z) + df_I)
         ddf_I = noise
         Xmh_p_dot = vertcat(dp_I, dv_I, ddf_I)
         return Xmh_p_dot
-    
-    def position_dyn_ukf(self, state_p_ukf, f_d, quaternion):
+
+    def position_dyn_ukf(self, state_p_mh, f_d, R_B):
         g = 9.81
         # Z direction vector free of coordinate
         z = vertcat(0, 0, 1)
-        v_I = vertcat(state_p_ukf[3], state_p_ukf[4], state_p_ukf[5])
-        df_I = vertcat(state_p_ukf[6], state_p_ukf[7], state_p_ukf[8])
+        v_I = vertcat(state_p_mh[3], state_p_mh[4], state_p_mh[5])
+        df_I = vertcat(state_p_mh[6], state_p_mh[7], state_p_mh[8])
         dp_I = v_I
-        # convert a point from body frame to inertial frame
-        q0, q1, q2, q3 = quaternion[0], quaternion[1], quaternion[2], quaternion[3]
-        # First row of the rotation matrix
-        r00 = 2 * (q0 * q0 + q1 * q1) - 1
-        r01 = 2 * (q1 * q2 - q0 * q3)
-        r02 = 2 * (q1 * q3 + q0 * q2)
-
-        # Second row of the rotation matrix
-        r10 = 2 * (q1 * q2 + q0 * q3)
-        r11 = 2 * (q0 * q0 + q2 * q2) - 1
-        r12 = 2 * (q2 * q3 - q0 * q1)
-
-        # Third row of the rotation matrix
-        r20 = 2 * (q1 * q3 - q0 * q2)
-        r21 = 2 * (q2 * q3 + q0 * q1)
-        r22 = 2 * (q0 * q0 + q3 * q3) - 1
-
-        # 3x3 rotation matrix
         R_b = vertcat(
-            horzcat(r00, r01, r02),
-            horzcat(r10, r11, r12),
-            horzcat(r20, r21, r22)
+            horzcat(R_B[0], R_B[1], R_B[2]),
+            horzcat(R_B[3], R_B[4], R_B[5]),
+            horzcat(R_B[6], R_B[7], R_B[8])
         )
-        dv_I = 1 / self.mass * (-self.mass * g * z + mtimes(R_b, mtimes(transpose(f_d), mtimes(R_b, z)) * z) + df_I)
+        dv_I = 1 / self.mass * (self.mass * g * z - mtimes(R_b, mtimes(transpose(f_d), mtimes(R_b, z)) * z) + df_I)
         ddf_I = np.zeros((3, 1))
         Xukf_p_dot = vertcat(dp_I, dv_I, ddf_I)
         return Xukf_p_dot
+
+    def position_dyn(self, state_p, f_d, R_b, df_I):
+        g = 9.81
+        # Z direction vector free of coordinate
+        z = vertcat(0, 0, 1)
+        v_I = vertcat(state_p[3], state_p[4], state_p[5])
+        dr_I = v_I
+        dv_I = 1 / self.mass * (self.mass * g * z - mtimes(R_b, mtimes(transpose(f_d), mtimes(R_b, z)) * z) + df_I)
+        X_p_dot = vertcat(dr_I, dv_I)
+        return X_p_dot
 
     def dir_cosine(self, Euler):
         # Euler angles for roll, pitch and yaw
@@ -159,7 +150,7 @@ class quadrotor:
         # Velocity dynamics in inertial frame
         dv_I = 1 / self.mass * (self.mass * g * z - mtimes(self.R_B, mtimes(self.fm, self.ctrl) * z) + self.df_I)
         self.f_d = SX.sym('f_d', 3, 1)
-        dv_I_mh = 1 / self.mass * (-self.mass * g * z + mtimes(self.R_B, mtimes(transpose(self.f_d), mtimes(self.R_B, z)) * z) + self.df_I)
+        dv_I_mh = 1 / self.mass * (self.mass * g * z - mtimes(self.R_B, mtimes(transpose(self.f_d), mtimes(self.R_B, z)) * z) + self.df_I)
         # Angular velocity dynamics in body frame
         dw_B = mtimes(inv(self.J_B), mtimes(self.tm, self.ctrl) + self.dt_B - mtimes(self.skew(self.w_B), mtimes(self.J_B, self.w_B)))
         # States
@@ -187,8 +178,7 @@ class quadrotor:
                                dr22, dr23, dr31, dr32, dr33, dw_B, ddt_B)
         # Position dynamics for DMHE
         # self.pdyn_mhe = vertcat(dr_I, dv_I_mh, ddf_I)
-        # Position dynamics
-        self.pdyn     = vertcat(dr_I, dv_I_mh)
+
         # Extended position states
         self.Xmhe_p = vertcat(self.r_I, self.v_I, self.df_I)
 
@@ -198,14 +188,19 @@ class quadrotor:
         kp3 = self.position_dyn_mh(self.Xmhe_p + self.DT / 2 * kp2, self.f_d, self.wf, self.R_B)
         kp4 = self.position_dyn_mh(self.Xmhe_p + self.DT * kp3, self.f_d, self.wf, self.R_B)
         self.pdyn_mhe = (kp1 + 2 * kp2 + 2 * kp3 + kp4)/6
-        
-        # 4-order Runge-Kutta discretization of dynamics model used in UKF
-        kp1 = self.position_dyn_ukf(self.Xmhe_p, self.f_d, self.quater)
-        kp2 = self.position_dyn_ukf(self.Xmhe_p + self.DT / 2 * kp1, self.f_d, self.quater)
-        kp3 = self.position_dyn_ukf(self.Xmhe_p + self.DT / 2 * kp2, self.f_d, self.quater)
-        kp4 = self.position_dyn_ukf(self.Xmhe_p + self.DT * kp3, self.f_d, self.quater)
-        self.pdyn_ukf = (kp1 + 2 * kp2 + 2 * kp3 + kp4)/6
+        # 4-order Runge-Kutta discretization of dynamics model used in DMHE
+        k1  = self.position_dyn(self.output_p, self.f_d, self.R_B, self.df_I)
+        k2  = self.position_dyn(self.output_p + self.DT / 2 * k1, self.f_d, self.R_B, self.df_I)
+        k3  = self.position_dyn(self.output_p + self.DT / 2 * k2, self.f_d, self.R_B, self.df_I)
+        k4  = self.position_dyn(self.output_p + self.DT * k3, self.f_d, self.R_B, self.df_I)
+        self.pdyn = (k1 + 2 * k2 + 2 * k3 + k4)/6
 
+        # 4-order Runge-Kutta discretization of dynamics model used in UKF
+        ku1 = self.position_dyn_ukf(self.Xmhe_p, self.f_d, self.R_B_h)
+        ku2 = self.position_dyn_ukf(self.Xmhe_p + self.DT / 2 * ku1, self.f_d, self.R_B_h)
+        ku3 = self.position_dyn_ukf(self.Xmhe_p + self.DT / 2 * ku2, self.f_d, self.R_B_h)
+        ku4 = self.position_dyn_ukf(self.Xmhe_p + self.DT * ku3, self.f_d, self.R_B_h)
+        self.pdyn_ukf = (ku1 + 2 * ku2 + 2 * ku3 + ku4) / 6
 
     def skew(self, v):
         v_cross = vertcat(
@@ -265,7 +260,7 @@ class quadrotor:
             Disf_total = T_drone+ Disf_i
             dis = np.array([[Disf_total[0, 0], Disf_total[1, 0], Disf_total[2, 0], distx_b[0], disty_b[0], distz_b[0]]]).T
 
-        return dis, T
+        return dis
 
     """
     The step function takes control (square of motor speed) as input and 

@@ -4,18 +4,15 @@ from enum import Enum
 from std_msgs.msg import Int64, Header, Byte
 from std_srvs.srv import SetBool
 import math
-from geometry_msgs.msg import PoseStamped, TwistStamped, Vector3, Quaternion
+from geometry_msgs.msg import PoseStamped, TwistStamped
 from mavros_msgs.msg import Altitude, ExtendedState, HomePosition, State, \
-                            WaypointList, PositionTarget, AttitudeTarget, Thrust
+                            WaypointList, PositionTarget
 from mavros_msgs.srv import CommandBool, ParamGet, SetMode, WaypointClear, \
                             WaypointPush
 from pymavlink import mavutil
 from sensor_msgs.msg import NavSatFix, Imu
 from six.moves import xrange
 from threading import Thread
-from tf.transformations import euler_from_quaternion, quaternion_from_euler
-import numpy as np
-
 
 class uavTaskType(Enum):
     Idle = 0
@@ -28,23 +25,18 @@ class NumberCounter:
     def __init__(self):
         self.counter = 0
         self.pub = rospy.Publisher("/number_count", Int64, queue_size=10)
-        self.number_subscriber = rospy.Subscriber(
-            "/number", Int64, self.callback_number)
-        self.reset_service = rospy.Service(
-            "/reset_counter", SetBool, self.callback_reset_counter)
-
+        self.number_subscriber = rospy.Subscriber("/number", Int64, self.callback_number)
+        self.reset_service = rospy.Service("/reset_counter", SetBool, self.callback_reset_counter)
     def callback_number(self, msg):
         self.counter += msg.data
         new_msg = Int64()
         new_msg.data = self.counter
         self.pub.publish(new_msg)
-
     def callback_reset_counter(self, req):
         if req.data:
             self.counter = 0
             return True, "Counter has been successfully reset"
         return False, "Counter has not been reset"
-
 
 class TaskManager:
     def __init__(self):
@@ -54,40 +46,25 @@ class TaskManager:
         self.imu_data = Imu()
         self.home_position = HomePosition()
         self.local_position = PoseStamped()
-        self.attitude_sp = PoseStamped()
         self.state = State()
-        self.local_velocity = TwistStamped()  # local_velocity initialize
-        self.attitude_rate = AttitudeTarget()  # use for attitude setpoints pub
-        self.thrust = Thrust()
+        self.local_velocity = TwistStamped() # local_velocity initialize
 
         self.pos = PoseStamped()
-        self.position = PositionTarget()  # thrust control commands
+        self.position = PositionTarget() # thrust control commands
 
         self.task_state = uavTaskType.Idle
-        self.euler = Vector3()  # Euler angles
-        self.pos_sp = Vector3() #position setpoint
 
         # ROS publisher
-        self.pos_control_pub = rospy.Publisher(
-            'mavros/setpoint_raw/local', PositionTarget, queue_size=10)
-        self.position_pub = rospy.Publisher(
-            'mavros/setpoint_position/local', PoseStamped, queue_size=1)
-        self.attitude_sp_pub = rospy.Publisher(
-            'mavros/setpoint_attitude/attitude', PoseStamped, queue_size=1)
-        self.attitude_rate_sp_pub = rospy.Publisher(
-            'mavros/setpoint_raw/attitude', AttitudeTarget, queue_size=1)
-        self.attitude_thrust_pub = rospy.Publisher(
-            'mavros/setpoint_attitude/thrust', Thrust, queue_size = 1)
+        self.pos_control_pub = rospy.Publisher('mavros/setpoint_raw/local', PositionTarget, queue_size = 10)
+        self.position_pub = rospy.Publisher('mavros/setpoint_position/local', PoseStamped, queue_size = 1)
+
         # ROS subscribers
 
-        self.local_pos_sub = rospy.Subscriber(
-            'mavros/local_position/pose', PoseStamped, self.local_position_callback)
-        self.state_sub = rospy.Subscriber(
-            'mavros/state', State, self.state_callback)
+        self.local_pos_sub = rospy.Subscriber('mavros/local_position/pose', PoseStamped, self.local_position_callback)
+        self.state_sub = rospy.Subscriber('mavros/state', State, self.state_callback)
         self.cmd_sub = rospy.Subscriber('user/cmd', Byte, self.cmd_callback)
-        self.vel_sub = rospy.Subscriber('mavros/local_position/velocity_local',
-                                        TwistStamped, self.local_velocity_callback)  # local_velocity susbcriber
-        #self.vel_global_sub = rospy.Subscriber('mavros/local_position/velocity_local', TwistStamped, self.global_velocity_callback)
+        self.vel_sub = rospy.Subscriber('mavros/local_position/velocity_body', TwistStamped, self.local_velocity_callback) # local_velocity susbcriber
+
         # send setpoints in seperate thread to better prevent failsafe
         self.pos_thread = Thread(target=self.send_pos_ctrl, args=())
         self.pos_thread.daemon = True
@@ -97,21 +74,21 @@ class TaskManager:
         service_timeout = 30
         rospy.loginfo("Waiting for ROS services")
         try:
-            rospy.wait_for_service('mavros/param/get', service_timeout)
-            rospy.wait_for_service('mavros/cmd/arming', service_timeout)
-            rospy.wait_for_service('mavros/mission/push', service_timeout)
-            rospy.wait_for_service('mavros/mission/clear', service_timeout)
-            rospy.wait_for_service('mavros/set_mode', service_timeout)
+            rospy.wait_for_service('mavros/param/get',service_timeout)
+            rospy.wait_for_service('mavros/cmd/arming',service_timeout)
+            rospy.wait_for_service('mavros/mission/push',service_timeout)
+            rospy.wait_for_service('mavros/mission/clear',service_timeout)
+            rospy.wait_for_service('mavros/set_mode',service_timeout)
             rospy.loginfo("ROS services are up")
         except rospy.ROSException:
             rospy.logerr("failed to connect to services")
         self.get_param_srv = rospy.ServiceProxy('mavros/param/get', ParamGet)
-        self.set_arming_srv = rospy.ServiceProxy(
-            'mavros/cmd/arming', CommandBool)
+        self.set_arming_srv = rospy.ServiceProxy('mavros/cmd/arming', CommandBool)
         self.set_mode_srv = rospy.ServiceProxy('mavros/set_mode', SetMode)
-
-    def local_velocity_callback(self, data):  # local_velocity callback
+    
+    def local_velocity_callback(self,data): # local_velocity callback
         self.local_velocity = data
+
 
     def send_pos(self):
         rate = rospy.Rate(10)
@@ -140,38 +117,32 @@ class TaskManager:
                 pass
 
     def cmd_callback(self, data):
-        # self.task_state = data
+        #self.task_state = data
         cmd = data.data
         rospy.loginfo("Command received: {0}".format(self.task_state))
         rospy.loginfo("Command received: {0}".format(data))
         if cmd == 1:
             rospy.loginfo("Taks state changed to {0}".format(self.task_state))
             self.task_state = uavTaskType.TakeOff
-        elif cmd == 2:
-            rospy.loginfo("Taks state changed to {0}".format(self.task_state))
-            self.task_state = uavTaskType.Mission
         elif cmd == 3:
             rospy.loginfo("Taks state changed to {0}".format(self.task_state))
             self.task_state = uavTaskType.Land
 
+
+
+    
     def local_position_callback(self, data):
         self.local_position = data
-        q = [data.pose.orientation.x, data.pose.orientation.y,
-            data.pose.orientation.z, data.pose.orientation.w]
-        self.euler = euler_from_quaternion(q)
 
     def state_callback(self, data):
         if self.state.armed != data.armed:
-            rospy.loginfo("armed state changed from {0} to {1}".format(
-                self.state.armed, data.armed))
-
+            rospy.loginfo("armed state changed from {0} to {1}".format(self.state.armed, data.armed))
+        
         if self.state.connected != data.connected:
-            rospy.loginfo("connected changed from {0} to {1}".format(
-                self.state.connected, data.connected))
+            rospy.loginfo("connected changed from {0} to {1}".format(self.state.connected, data.connected))
 
         if self.state.mode != data.mode:
-            rospy.loginfo("mode changed from {0} to {1}".format(
-                self.state.mode, data.mode))
+            rospy.loginfo("mode changed from {0} to {1}".format(self.state.mode, data.mode))
 
         if self.state.system_status != data.system_status:
             rospy.loginfo("system_status changed from {0} to {1}".format(
@@ -210,7 +181,7 @@ class TaskManager:
                 rate.sleep()
             except rospy.ROSException as e:
                 rospy.logerr("fail to arm")
-
+    
     def set_mode(self, mode, timeout):
         """mode: PX4 mode string, timeout(int): seconds"""
         rospy.loginfo("setting FCU mode: {0}".format(mode))
@@ -238,6 +209,8 @@ class TaskManager:
                 rospy.logerr("fail to set mode")
 
 
+
+
 if __name__ == '__main__':
     rospy.init_node('number_counter')
     print("hahaha")
@@ -247,91 +220,33 @@ if __name__ == '__main__':
     uavTask.pos.pose.position.x = 0
     uavTask.pos.pose.position.y = 0
     uavTask.pos.pose.position.z = 0
-
+    
     uavTask.set_mode("OFFBOARD", 5)
     uavTask.set_arm(True, 5)
 
     while not rospy.is_shutdown():
-        rate = rospy.Rate(200)
+        rate = rospy.Rate(100)
         print(uavTask.task_state)
-        # uavTask.position_pub.publish(uavTask.pos)
+        #uavTask.position_pub.publish(uavTask.pos)
         if uavTask.task_state == uavTaskType.TakeOff:
-            rospy.loginfo("Doing Takeoff using attitude setpoint")
+            rospy.loginfo("Doing Takeoff")
             rospy.loginfo("time now is {0}".format(rospy.Time.now()))
             uavTask.pos.pose.position.x = 0
             uavTask.pos.pose.position.y = 0
-            uavTask.pos.pose.position.z = 1.5
-            uavTask.pos.pose.orientation.x = 0
-            uavTask.pos.pose.orientation.y = 0
-            uavTask.pos.pose.orientation.z =0
-            uavTask.pos.pose.orientation.w = 1
+            uavTask.pos.pose.position.z = 2
             uavTask.position.position.x = 0
             uavTask.position.position.y = 0
-            uavTask.position.position.z = 0.8
+            uavTask.position.position.z = 0.6
             uavTask.position.type_mask = 32768
-            uavTask.position_pub.publish(uavTask.pos)
-            #uavTask.pos_control_pub.publish(uavTask.position)
+            #uavTask.position_pub.publish(uavTask.pos)
+            uavTask.pos_control_pub.publish(uavTask.position)
 
         elif uavTask.task_state == uavTaskType.Mission:
             rospy.loginfo("Doing Mission")
-            uavTask.pos_sp = [0, 0, 0.6]
-            # Get position feedback from PX4
-            x = uavTask.local_position.pose.position.x
-            y = uavTask.local_position.pose.position.y
-            z = uavTask.local_position.pose.position.z  # ENU used in ROS
-            vx_enu = uavTask.local_velocity.twist.linear.x  # NWU body frame
-            vy_enu = uavTask.local_velocity.twist.linear.y
-            vz_enu = uavTask.local_velocity.twist.linear.z
-            # LQR-based controller, x-gamma, y-beta, z-alpha
-            # gamma = uavTask.euler[0]
-            # beta = uavTask.euler[1]
 
-            yaw = 0/57.3 # attitude_rate setpoint body_z
-            # yaw = 0 #simulation face east
-            state_x = np.array([[x, vx_enu]]).T
-            # K_x = np.array([[0.1,0.1724]]) heading East!!!
-            K_x = np.array([[0.1,0.1744]]) #less aggressive
-            beta = -np.matmul(K_x, state_x) # attitude setpoint body_y
-            state_y = np.array([[y, vy_enu]]).T
-            # K_y = np.array([[-0.1, -0.1724])
-            K_y = np.array([[-0.1, -0.1744]])
-            gamma = -np.matmul(K_y, state_y) # attitude setpoint body_x
-            state_z = np.array([[z-uavTask.pos_sp[2], vz_enu]]).T
-            # K_z = np.array([[0.7071, 1.2305]])
-            K_z = np.array([[0.7071,1.3836]]) #less aggresive
-            a = -np.matmul(K_z, state_z)/(3*9.8)+0.355 #throttle sp
-            #a = float(a)
-
-            uavTask.attitude_rate.body_rate = Vector3()
-            uavTask.attitude_rate.header = Header()
-            uavTask.attitude_rate.header.frame_id = "base_footprint"
-            #uavTask.attitude_rate.orientation = 
-            quat = quaternion_from_euler(gamma, beta, yaw)
-            #quat = quaternion_from_euler(0, 0, 0)
-            # uavTask.attitude_rate.body_rate.y = 0
-            # uavTask.attitude_rate.body_rate.z = 0
-            #eu = np.array([[gamma, beta, yaw]]).T
-            #quat = quaternion_from_euler(gamma, beta, yaw) # X,Y,Z,W
-            #uavTask.attitude_rate.orientation = quat
-            uavTask.attitude_rate.orientation.x = quat[0]
-            uavTask.attitude_rate.orientation.y = quat[1]
-            uavTask.attitude_rate.orientation.z = quat[2]
-            uavTask.attitude_rate.orientation.w = quat[3]
-            #uavTask.attitude_sp.pose.position.x = 0
-            #uavTask.attitude_sp.pose.position.y = 0
-            #uavTask.attitude_sp.pose.position.z = 0
-            #uavTask.attitude_sp.pose.orientation.x = quat[0]
-            #uavTask.attitude_sp.pose.orientation.y = quat[1]
-            #uavTask.attitude_sp.pose.orientation.z = quat[2]
-            #uavTask.attitude_sp.pose.orientation.w = quat[3]
-            #uavTask.thrust.thrust = a
-            uavTask.attitude_rate.thrust = a
-            uavTask.attitude_rate.type_mask = 7
-            uavTask.attitude_rate_sp_pub.publish(uavTask.attitude_rate)
-            #uavTask.attitude_thrust_pub.publish(uavTask.thrust)
             ## Controller will be used here ###
 
-            #uavTask.pos_control_pub.publish(uavTask.position)
+            uavTask.pos_control_pub.publish(uavTask.position)
 
         elif uavTask.task_state == uavTaskType.Land:
             rospy.loginfo("Doing Land")

@@ -55,6 +55,7 @@ class TaskManager:
         self.home_position = HomePosition()
         self.local_position = PoseStamped()
         self.attitude_sp = PoseStamped()
+        self.pen_pose = PoseStamped()
         self.state = State()
         self.local_velocity = TwistStamped()  # local_velocity initialize
         self.attitude_rate = AttitudeTarget()  # use for attitude setpoints pub
@@ -89,6 +90,7 @@ class TaskManager:
                                         TwistStamped, self.local_velocity_callback)  # local_velocity susbcriber
         #self.vel_global_sub = rospy.Subscriber('mavros/local_position/velocity_local', TwistStamped, self.global_velocity_callback)
         # send setpoints in seperate thread to better prevent failsafe
+        self.pen_pose_sub = rospy.Subscriber('/vrpn_client_ros/pen/pose', PoseStamped, self.pen_position_callback)
         self.pos_thread = Thread(target=self.send_pos_ctrl, args=())
         self.pos_thread.daemon = True
         self.pos_thread.start()
@@ -180,7 +182,8 @@ class TaskManager:
                         'MAV_STATE'][data.system_status].name))
 
         self.state = data
-
+    def pen_position_callback(self, data):
+        self.pen_pose = data
     #
     # Helper methods
     #
@@ -276,9 +279,12 @@ if __name__ == '__main__':
             rospy.loginfo("Doing Mission")
             uavTask.pos_sp = [0, 0, 0.6]
             # Get position feedback from PX4
+            # uavTask.pen_pose.pose.position.x
             x = uavTask.local_position.pose.position.x
             y = uavTask.local_position.pose.position.y
             z = uavTask.local_position.pose.position.z  # ENU used in ROS
+            dx = uavTask.pen_pose.pose.position.x - x 
+            dy = uavTask.pen_pose.pose.position.y - y
             vx_enu = uavTask.local_velocity.twist.linear.x  # NWU body frame
             vy_enu = uavTask.local_velocity.twist.linear.y
             vz_enu = uavTask.local_velocity.twist.linear.z
@@ -288,17 +294,17 @@ if __name__ == '__main__':
 
             yaw = 0/57.3 # attitude_rate setpoint body_z
             # yaw = 0 #simulation face east
-            state_x = np.array([[x, vx_enu]]).T
+            state_x = np.array([[dx, 0, x, vx_enu]]).T
             # K_x = np.array([[0.1,0.1724]]) heading East!!!
-            K_x = np.array([[0.1,0.1744]]) #less aggressive
+            K_x = np.array([[-2.801, -1.0236, -0.1, -0.2745]]) #less aggressive
             beta = -np.matmul(K_x, state_x) # attitude setpoint body_y
-            state_y = np.array([[y, vy_enu]]).T
+            state_y = np.array([[dy, 0, y, vy_enu]]).T
             # K_y = np.array([[-0.1, -0.1724])
-            K_y = np.array([[-0.1, -0.1744]])
+            K_y = np.array([[2.801, 1.0236, 0.1, 0.2745]])
             gamma = -np.matmul(K_y, state_y) # attitude setpoint body_x
             state_z = np.array([[z-uavTask.pos_sp[2], vz_enu]]).T
             # K_z = np.array([[0.7071, 1.2305]])
-            K_z = np.array([[0.7071,1.3836]]) #less aggresive
+            K_z = np.array([[0.7071,1.7071]]) #less aggresive
             a = -np.matmul(K_z, state_z)/(3*9.8)+0.355 #throttle sp
             #a = float(a)
 

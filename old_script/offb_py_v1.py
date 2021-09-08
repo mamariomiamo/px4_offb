@@ -220,10 +220,10 @@ class TaskManager:
                 rospy.logerr("fail to set mode")
 
 """------------Load system parameters for the proposed controller-------------"""
-Sys_para = np.array([1.74, 0.011, 0.015, 0.021, 0.21, 8.55e-6, 4.7e-6]) #8.54858e-06  1.3e-5
+Sys_para = np.array([1.8, 0.011, 0.015, 0.021, 0.21, 8.55e-6, 4.7e-6]) #8.54858e-06  1.3e-5
 IGE_para = np.array([0.44, 1.8, 0.1])
 # Time interval of taking-off
-t_end = 10
+t_end = 5
 # Sampling time-step
 dt_sample = 1/30
 uav = UavEnv.quadrotor(Sys_para, IGE_para, dt_sample)
@@ -236,10 +236,10 @@ D_in, D_h, D_out = 6, 50, 20
 
 def para(para_bar):
     P_min = 0
-    P_max = 1e-1
+    P_max = 2e-1
     gammar_min = 0
-    gammar_max = 5e-1
-    gammaq_min = 5e-1
+    gammar_max = 1
+    gammaq_min = 0
     gammaq_max = 1
     R_min = 0
     R_max = 1e2
@@ -397,7 +397,7 @@ def Actual_thrust(pwm, voltage, R_b, Sys_para):
 GeoCtrl = Robust_Flight.Controller(Sys_para, uav.X, uav.Xmhe)
 
 """-------------------Define MHE----------------------------------------------"""
-horizon = 7 # previous 30
+horizon = 10 # previous 30
 uavMHE = Robust_Flight.MHE(horizon, dt_sample)
 uavMHE.SetStateVariable(uav.Xmhe_p)
 uavMHE.SetOutputVariable(uav.output_p)
@@ -412,7 +412,7 @@ uavMHE.SetCostDyn()
 # P0 = 100 * np.identity(uav.Xmhe_p.numel())
 # Control force and torque list
 m = Sys_para[0]
-g = 9.81
+g = 9.8
 ctrl_f = []
 ctrl_f += [np.array([[0,0,m*g]]).T]
 # Rotation list
@@ -452,13 +452,14 @@ def OutputUKF(x):
     output = np.matmul(H, x)
     y = np.reshape(output, (6))
     return y
+
 # UKF settings
 sigmas = MerweScaledSigmaPoints(9, alpha=.1, beta=2., kappa=1)
 ukf    = UKF(dim_x=9, dim_z=6, fx=DynUKF, hx=OutputUKF, dt=dt_sample, points=sigmas)
 
 # Covariance matrices for UKF
 ukf.R = np.diag([0.01, 0.01, 0.01, 0.01, 0.01, 0.01]) # measurement noise
-ukf.Q = np.diag([0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 10, 10, 10]) # process noise
+ukf.Q = np.diag([0.01, 0.01, 0.01, 0.01, 0.01, 0.01,10,10, 10]) # process noise
 
 # Load the trajectory data
 filename = 'waypoints'
@@ -467,7 +468,8 @@ traj_waypoints = np.loadtxt(filename)
 # Choose the trajectory
 takeoff_only = False
 nn_param_list = []
-
+# Choose estimator
+mhe = True
 
 if __name__ == '__main__':
     rospy.init_node('Moving Horizon Estimator')
@@ -495,7 +497,9 @@ if __name__ == '__main__':
             # rospy.loginfo("pwm 2 is {0}".format(pwm[1]))
             # rospy.loginfo("pwm 3 is {0}".format(pwm[2]))
             # rospy.loginfo("pwm 4 is {0}".format(pwm[3]))R_b
-
+            uavTask.position.position.x = 0
+            uavTask.position.position.y = 0
+            uavTask.position.position.z = 1.5
             uavTask.position.type_mask = 3064 # flag for pid
             uavTask.pos_control_pub.publish(uavTask.position)
 
@@ -546,44 +550,8 @@ if __name__ == '__main__':
             pwm[2] = uavTask.pwm_out.channels[2]
             pwm[3] = uavTask.pwm_out.channels[3]
             voltage = uavTask.battery_state.voltage
-            #Solve MHE to obtain the estimated state trajectory within a horizon
-            rospy.loginfo("current z feedback is {0}".format(Y_p[-1][2,0]))
-            opt_sol = uavMHE.MHEsolver(Y_p, track_e, x_hatmh, xmhe_traj, ctrl_f, model_QR, k_time, R_B)
-            xmhe_traj = opt_sol['state_traj_opt']
-            costate_traj = opt_sol['costate_traj_opt']
-            # Establish the auxiliary MHE system
-            auxSys = uavMHE.GetAuxSys(xmhe_traj, costate_traj, model_QR, Y_p, track_e)
-            matA, matB, matH = auxSys['matA'], auxSys['matB'], auxSys['matH']
-            matD, matE, matF = auxSys['matD'], auxSys['matE'], auxSys['matF']
-            if time > (horizon * dt_sample):
-                # Update x_hatmh based on xmhe_traj
-                for ix in range(len(x_hatmh)):
-                    x_hatmh[ix] = xmhe_traj[1, ix]
-            else:
-                for ix in range(len(x_hatmh)):
-                    x_hatmh[ix] = xmhe_traj[0, ix]
 
-            # Implement UKF
-            #Qt = quaternion
-            #Qt = np.reshape(Qt, (1, 4))
-            #ctrlf = np.reshape(ctrl_f[-1], (1, 3))
-            #U1 = np.hstack((ctrlf, Qt))
-            #U1 = np.reshape(U1, (7))
-            #ukf.predict(U=U1)
-            #y = np.reshape(Y_p[-1], (6))
-            #ukf.update(z=y)
-            #Xukf = ukf.x.copy()
-            scale_factor = voltage/17.27*2.4
-            # Position control
-            df_Imh = np.transpose(xmhe_traj[-1, 6:9])
-            #df_Iukf = Xukf[6:9]
-            #df_Iukf = np.reshape(df_Iukf,(3,1))
-            #df_Iukf = df_Iukf - np.array([[0, 0, scale_factor]]).T
-            #rospy.loginfo("estimator force z is {0}".format(df_Imh))
-            #rospy.loginfo("estimator position z is {0}".format(xmhe_traj[-1, 2]))
-            df_Imh = np.reshape(df_Imh, (3, 1))
-            df_Imh = df_Imh - np.array([[0, 0, scale_factor]]).T
-            #rospy.loginfo("estimator force is {0}".format(df_Iukf))
+            # reference
 
             if takeoff_only:
                 Coeff_x, Coeff_y, Coeff_z = polynomial_ref(t_end, target, P_xy0)
@@ -601,29 +569,77 @@ if __name__ == '__main__':
                     ref_dv = np.array([[traj_waypoints[-1, 7], traj_waypoints[-1, 6], traj_waypoints[-1, 8]]]).T
                     b1_d = np.array([[1, 0, 0]]).T
 
+            ref_pva = np.vstack((ref_p, ref_v))
+            if mhe:
+                #Solve MHE to obtain the estimated state trajectory within a horizon
+                rospy.loginfo("current z feedback is {0}".format(Y_p[-1][2,0]))
+                opt_sol = uavMHE.MHEsolver(Y_p, x_hatmh, xmhe_traj, ctrl_f, model_QR, k_time, R_B, ref_pva)
+                xmhe_traj = opt_sol['state_traj_opt']
+                costate_traj = opt_sol['costate_traj_opt']
+                # Establish the auxiliary MHE system
+                auxSys = uavMHE.GetAuxSys(xmhe_traj, costate_traj, model_QR, Y_p, ref_pva)
+                matA, matB, matH = auxSys['matA'], auxSys['matB'], auxSys['matH']
+                matD, matE, matF = auxSys['matD'], auxSys['matE'], auxSys['matF']
+                if time > (horizon * dt_sample):
+                    # Update x_hatmh based on xmhe_traj
+                    for ix in range(len(x_hatmh)):
+                        x_hatmh[ix] = xmhe_traj[1, ix]
+                else:
+                    for ix in range(len(x_hatmh)):
+                        x_hatmh[ix] = xmhe_traj[0, ix]
+                df_I = np.transpose(xmhe_traj[-1, 6:9])
+            else:
+                # Implement UKF
+                Qt = quaternion
+                Qt = np.reshape(Qt, (1, 4))
+                ctrlf = np.reshape(ctrl_f[-1], (1, 3))
+                U1 = np.hstack((ctrlf, Qt))
+                U1 = np.reshape(U1, (7))
+                ukf.predict(U=U1)
+                y = np.reshape(Y_p[-1], (6))
+                ukf.update(z=y)
+                Xukf = ukf.x.copy()
+                df_I = Xukf[6:9]
+
+            # Position control
+            scale_factor = voltage/17.1*2.4
+            #df_Iukf = np.reshape(df_Iukf,(3,1))
+            #df_Iukf = df_Iukf - np.array([[0, 0, scale_factor]]).T
+            #rospy.loginfo("estimator force z is {0}".format(df_Imh))
+            #rospy.loginfo("estimator position z is {0}".format(xmhe_traj[-1, 2]))
+            df_I = np.reshape(df_I, (3, 1))
+            df_I = df_I - np.array([[0, 0, scale_factor+1]]).T
+            #rospy.loginfo("estimator force is {0}".format(df_Iukf))
+
             # ref_p = np.array([[0,0,-1]]).T
             # ref_v = np.zeros((3,1))
             # ref_dv = np.zeros((3,1))
-            nn_gain = model_gain(track_e[-1])
-            nn_gain = model_QR(track_e[-1])
+            input_gain = np.vstack((Y_p[-1]))
+            nn_ctrl = model_gain(input_gain)
+            nn_gain = model_QR(input_gain)
             nn_param= para(nn_gain)
             nn_param_list += [nn_param]
-            np.save('nn_param_list_6s',nn_param_list)
-            #ctrl_gain = control_gain(nn_gain)
-            ctrl_gain = np.array([[4.5,4.5,5.5,6.5,6.5,6]]) #manual gain
+           # np.save('nn_param_list_8s',nn_param_list)
+            ctrl_gain = control_gain(nn_ctrl)
+            # ctrl_gain = np.array([[4,4,4,2,2,2]]) #manual gain
             # receive feedback of position and attitude from ROS topic
 
             #R_B is the transformation matrix from NED body to NED world frame
             R_B += [R_b]
-            if time>1:
-                factor = 1
-                rospy.loginfo("using factor 1")
+            if time<1:
+                factor = 0
+                rospy.loginfo("using factor 0")
+            # elif time<4:
+            #     factor = 1
+            #     rospy.loginfo("using factor 1")
             else:
                 factor = 0
-            R_Bd_next, Tf, e_x, e_v, fd = GeoCtrl.position_ctrl(ctrl_gain, Y_p[-1], R_B[-1], ref_p, ref_v, ref_dv, b1_d, factor*df_Imh)
+                rospy.loginfo("using factor 0")
+            R_Bd_next, Tf, e_x, e_v, fd = GeoCtrl.position_ctrl(ctrl_gain, Y_p[-1], R_B[-1], ref_p, ref_v, ref_dv, b1_d, factor*df_I)
             # Store tracking error and control forces
             error_track = np.vstack((e_x, e_v))
             track_e += [error_track]
+            np.save('track_error_list_noDO_8s',track_e)
             f_ad = Actual_thrust(pwm, voltage, R_b, Sys_para)
             ctrl_f += [f_ad]
             #rospy.loginfo("z force is {0}".format(f_ad[2, 0]))
@@ -640,9 +656,10 @@ if __name__ == '__main__':
             uavTask.position.position.y = fy
             uavTask.position.position.z = fz
             uavTask.position.velocity.x = e_x[-1,0]
-            uavTask.position.velocity.y = df_Imh[2,0]
+            uavTask.position.velocity.y = df_I[2,0]
             uavTask.position.velocity.z = e_x[1,0]
-            uavTask.position.acceleration_or_force.x = ref_p[1,0]
+            uavTask.position.acceleration_or_force.x = ref_p[1, 0]
+            uavTask.position.acceleration_or_force.y = ref_p[0, 0]
             uavTask.position.acceleration_or_force.z = ref_p[-1,0]
             #rospy.loginfo("estimator z is {0}".format(df_Imh[2,0]))
             #rospy.loginfo("f diff is {0}".format(f_diff))
