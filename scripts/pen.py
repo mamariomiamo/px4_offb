@@ -259,24 +259,68 @@ if __name__ == '__main__':
         print(uavTask.task_state)
         # uavTask.position_pub.publish(uavTask.pos)
         if uavTask.task_state == uavTaskType.TakeOff:
-            rospy.loginfo("Doing Takeoff using attitude setpoint")
-            rospy.loginfo("time now is {0}".format(rospy.Time.now()))
-            uavTask.pos.pose.position.x = 0
-            uavTask.pos.pose.position.y = 0
-            uavTask.pos.pose.position.z = 1.5
-            uavTask.pos.pose.orientation.x = 0
-            uavTask.pos.pose.orientation.y = 0
-            uavTask.pos.pose.orientation.z =0
-            uavTask.pos.pose.orientation.w = 1
-            uavTask.position.position.x = 0
-            uavTask.position.position.y = 0
-            uavTask.position.position.z = 0.8
-            uavTask.position.type_mask = 32768
-            uavTask.position_pub.publish(uavTask.pos)
+            rospy.loginfo("Doing LQR takeoff")
+            uavTask.pos_sp = [0, 0, 0.6]
+            # Get position feedback from PX4
+            x = uavTask.local_position.pose.position.x
+            y = uavTask.local_position.pose.position.y
+            z = uavTask.local_position.pose.position.z  # ENU used in ROS
+            vx_enu = uavTask.local_velocity.twist.linear.x  # NWU body frame
+            vy_enu = uavTask.local_velocity.twist.linear.y
+            vz_enu = uavTask.local_velocity.twist.linear.z
+            # LQR-based controller, x-gamma, y-beta, z-alpha
+            # gamma = uavTask.euler[0]
+            # beta = uavTask.euler[1]
+
+            yaw = 0/57.3 # attitude_rate setpoint body_z
+            # yaw = 0 #simulation face east
+            state_x = np.array([[x, vx_enu]]).T
+            # K_x = np.array([[0.1,0.1724]]) heading East!!!
+            K_x = np.array([[0.1,0.1744]]) #less aggressive
+            beta = -np.matmul(K_x, state_x) # attitude setpoint body_y
+            state_y = np.array([[y, vy_enu]]).T
+            # K_y = np.array([[-0.1, -0.1724])
+            K_y = np.array([[-0.1, -0.1744]])
+            gamma = -np.matmul(K_y, state_y) # attitude setpoint body_x
+            state_z = np.array([[z-uavTask.pos_sp[2], vz_enu]]).T
+            # K_z = np.array([[0.7071, 1.2305]])
+            K_z = np.array([[0.7071,1.3836]]) #less aggresive
+            a = -np.matmul(K_z, state_z)/(3*9.8)+0.355 #throttle sp
+            #a = float(a)
+
+            uavTask.attitude_rate.body_rate = Vector3()
+            uavTask.attitude_rate.header = Header()
+            uavTask.attitude_rate.header.frame_id = "base_footprint"
+            #uavTask.attitude_rate.orientation = 
+            quat = quaternion_from_euler(gamma, beta, yaw)
+            #quat = quaternion_from_euler(0, 0, 0)
+            # uavTask.attitude_rate.body_rate.y = 0
+            # uavTask.attitude_rate.body_rate.z = 0
+            #eu = np.array([[gamma, beta, yaw]]).T
+            #quat = quaternion_from_euler(gamma, beta, yaw) # X,Y,Z,W
+            #uavTask.attitude_rate.orientation = quat
+            uavTask.attitude_rate.orientation.x = quat[0]
+            uavTask.attitude_rate.orientation.y = quat[1]
+            uavTask.attitude_rate.orientation.z = quat[2]
+            uavTask.attitude_rate.orientation.w = quat[3]
+            #uavTask.attitude_sp.pose.position.x = 0
+            #uavTask.attitude_sp.pose.position.y = 0
+            #uavTask.attitude_sp.pose.position.z = 0
+            #uavTask.attitude_sp.pose.orientation.x = quat[0]
+            #uavTask.attitude_sp.pose.orientation.y = quat[1]
+            #uavTask.attitude_sp.pose.orientation.z = quat[2]
+            #uavTask.attitude_sp.pose.orientation.w = quat[3]
+            #uavTask.thrust.thrust = a
+            uavTask.attitude_rate.thrust = a
+            uavTask.attitude_rate.type_mask = 7
+            uavTask.attitude_rate_sp_pub.publish(uavTask.attitude_rate)
+            #uavTask.attitude_thrust_pub.publish(uavTask.thrust)
+            ## Controller will be used here ###
+
             #uavTask.pos_control_pub.publish(uavTask.position)
 
         elif uavTask.task_state == uavTaskType.Mission:
-            rospy.loginfo("Doing Mission")
+            rospy.loginfo("Flying pendulum")
             uavTask.pos_sp = [0, 0, 0.6]
             # Get position feedback from PX4
             # uavTask.pen_pose.pose.position.x

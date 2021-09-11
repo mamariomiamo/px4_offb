@@ -208,6 +208,6 @@ include_directories(
 ## Add folders to be run by python nosetests
 # catkin_add_nosetests(test)
 
-catkin_install_python(PROGRAMS scripts/offb_py.py scripts/offb_py_v1.py scripts/Robust_Flight.py scripts/UavEnv.py scripts/uavNN.py
+catkin_install_python(PROGRAMS scripts/offb_py.py scripts/offb_rate.py scripts/pen.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
