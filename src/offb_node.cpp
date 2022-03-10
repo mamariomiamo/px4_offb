@@ -41,7 +41,7 @@ OffbNode::OffbNode(ros::NodeHandle &nodeHandle) : _nh(nodeHandle)
     uav_gps_home_sub = _nh.subscribe<mavros_msgs::HomePosition>(
         "/mavros/home_position/home", 1, &OffbNode::gpsHomeCallback, this);
 
-    _nh.param<std::string>("WP_Location", trajectory_location, "/home/zhengtian/px4_offb/src/px4_offb/param/waypoints");
+    _nh.param<std::string>("WP_Location", trajectory_location, "/home/catkin_ws/src/px4_offb/param/waypoints");
     std::cout << "WP_Location: " << trajectory_location << std::endl;
 
     ROS_INFO("Offboard node is ready!");
@@ -85,6 +85,7 @@ void OffbNode::missionTimer(const ros::TimerEvent &)
         pos_sp.position.x = takeoff_x;
         pos_sp.position.y = takeoff_y;
         pos_sp.position.z = takeoff_height;
+        pos_sp.coordinate_frame = mavros_msgs::PositionTarget::FRAME_LOCAL_NED;
 
         pos_sp.type_mask = 3576;
         Position_Setpoint_Pub.publish(pos_sp);
@@ -112,6 +113,7 @@ void OffbNode::missionTimer(const ros::TimerEvent &)
             pos_sp.acceleration_or_force.z = _traj_list[_points_id].acc.z;
             //pos_sp.yaw = atan2(pos_sp.velocity.y, pos_sp.velocity.x); // yaw control
             pos_sp.yaw = 0; //fixed yaw
+            pos_sp.coordinate_frame = mavros_msgs::PositionTarget::FRAME_LOCAL_NED;
 
             _points_id++;
         }
@@ -131,6 +133,7 @@ void OffbNode::missionTimer(const ros::TimerEvent &)
             pos_sp.acceleration_or_force.x = _traj_list[_points_id].acc.x;
             pos_sp.acceleration_or_force.y = _traj_list[_points_id].acc.y;
             pos_sp.acceleration_or_force.z = _traj_list[_points_id].acc.z;
+            pos_sp.coordinate_frame = mavros_msgs::PositionTarget::FRAME_LOCAL_NED;
             _points_id++;
         }
 
@@ -193,6 +196,7 @@ bool OffbNode::set_offboard()
     init_sp.acceleration_or_force.y = 0;
     init_sp.acceleration_or_force.z = 0;
     init_sp.yaw = 0;
+    init_sp.coordinate_frame = mavros_msgs::PositionTarget::FRAME_LOCAL_NED;
 
     //send a few setpoints before starting
     for (int i = 100; ros::ok() && i > 0; --i)
@@ -316,6 +320,7 @@ bool OffbNode::loadTrajectory()
     if (!f.good())
     {
         ROS_ERROR("Wrong file name!");
+        printf("%s\n",trajectory_location);
         return false;
     }
 
