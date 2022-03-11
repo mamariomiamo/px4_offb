@@ -10,11 +10,15 @@ OffbNode::OffbNode(ros::NodeHandle &nodeHandle) : _nh(nodeHandle)
 
     takeoff_announced = false;
 
+    navGoal_init = false;
+
     // publish file timer
     _nh.param("missionPeriod", _missionPeriod, 0.2);
     std::cout << "missionPeriod: " << _missionPeriod << std::endl;
 
     cmd_sub = _nh.subscribe<std_msgs::Byte>("/user_cmd", 1, &OffbNode::cmd_cb, this);
+
+    navGoal_sub = _nh.subscribe<geometry_msgs::PoseStamped>("/goal", 1, &OffbNode::navGoal_cb, this);
 
     uav_state_sub = _nh.subscribe<mavros_msgs::State>("/mavros/state", 10, &OffbNode::uavStateCallBack, this);
 
@@ -41,7 +45,7 @@ OffbNode::OffbNode(ros::NodeHandle &nodeHandle) : _nh(nodeHandle)
     uav_gps_home_sub = _nh.subscribe<mavros_msgs::HomePosition>(
         "/mavros/home_position/home", 1, &OffbNode::gpsHomeCallback, this);
 
-    _nh.param<std::string>("WP_Location", trajectory_location, "/home/catkin_ws/src/px4_offb/param/waypoints");
+    _nh.param<std::string>("WP_Location", trajectory_location, "/home/catkin_ws/src/px4_offb/param/waypoints.txt");
     std::cout << "WP_Location: " << trajectory_location << std::endl;
 
     ROS_INFO("Offboard node is ready!");
@@ -49,6 +53,12 @@ OffbNode::OffbNode(ros::NodeHandle &nodeHandle) : _nh(nodeHandle)
 
 OffbNode::~OffbNode()
 {
+}
+
+void OffbNode::navGoal_cb(const geometry_msgs::PoseStamped::ConstPtr &msg)
+{
+    navGoal_sp = *msg;
+    navGoal_init = true;
 }
 
 void OffbNode::gpsHomeCallback(const mavros_msgs::HomePosition::ConstPtr &msg)
@@ -90,6 +100,25 @@ void OffbNode::missionTimer(const ros::TimerEvent &)
         pos_sp.type_mask = 3576;
         Position_Setpoint_Pub.publish(pos_sp);
         break;
+    }
+
+    case kWaypoint:
+    {
+        if(navGoal_init)
+        {
+            waypoint_sp = navGoal_sp;
+            local_pos_pub.publish(waypoint_sp);
+            break;
+        }
+        else // no user input nav goal, just use takeoff pose
+        {
+            waypoint_sp.pose.position.x = takeoff_x;
+            waypoint_sp.pose.position.y = takeoff_y;
+            waypoint_sp.pose.position.z = takeoff_height;
+            local_pos_pub.publish(waypoint_sp);
+            break;
+        }
+
     }
 
     case kMission:
@@ -248,7 +277,7 @@ void OffbNode::cmd_cb(const std_msgs::Byte::ConstPtr &msg)
     ROS_INFO("user cmd received");
     switch (cmd)
     {
-    case TAKEOFF:
+    case TAKEOFF: //1
     {
         if (!uav_current_state.armed)
         {
@@ -270,14 +299,30 @@ void OffbNode::cmd_cb(const std_msgs::Byte::ConstPtr &msg)
         break;
     }
 
-    case MISSION:
+    case WAYPOINT: //2
     {
         if (!takeoff_flag)
         {
-            ROS_ERROR("Vehilce has not taken off, please issue takeoff command first.");
+            ROS_ERROR("Vehicle has not taken off, please issue takeoff command first.");
             break;
         }
-        ROS_INFO("command received!");
+        ROS_INFO("Waypoint command received!");
+        uavTask = kWaypoint;
+        if(!navGoal_init)
+        {
+            navGoal_sp = uav_pose;
+        }
+        break;
+    }
+
+    case MISSION: //3
+    {
+        if (!takeoff_flag)
+        {
+            ROS_ERROR("Vehicle has not taken off, please issue takeoff command first.");
+            break;
+        }
+        ROS_INFO("Mission command received!");
         ROS_INFO("Loading Trajectory...");
         if (loadTrajectory())
         {
@@ -320,7 +365,7 @@ bool OffbNode::loadTrajectory()
     if (!f.good())
     {
         ROS_ERROR("Wrong file name!");
-        printf("%s\n",trajectory_location);
+        printf("%s\n",trajectory_location.c_str());
         return false;
     }
 
