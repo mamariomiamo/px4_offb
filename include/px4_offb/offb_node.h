@@ -14,22 +14,25 @@
 #include <sstream>
 #include <fstream>
 #include <iostream>
+#include <tf/transform_listener.h>
 // #define ENGINE0 0
 // #define TAKEOFF 1
 #define TAKEOFF 1
-#define MISSION 2
+#define WAYPOINT 2
+#define MISSION 3
 #define LAND 5
 
 
 enum UavTaskState
 {
-    kIdle,
-    kReady,
-    kTakeOff,
-    kHover,
-    kMission,
-    kSwarm,
-    kLand,
+    kIdle,      //0
+    kReady,     //1
+    kTakeOff,   //2
+    kHover,     //3
+    kMission,   //4
+    kWaypoint,
+    kSwarm,     //5
+    kLand,      //6
 };
 // #define MISSION 2
 // #define HOVER 3
@@ -58,6 +61,9 @@ public:
     void pubTrajectory();
     //void state_cb(const mavros_msgs::State::ConstPtr &msg);
     void cmd_cb(const std_msgs::Byte::ConstPtr &msg);
+
+    void navGoal_cb(const geometry_msgs::PoseStamped::ConstPtr &msg);
+
     void uavStateCallBack(const mavros_msgs::State::ConstPtr &msg);
 
     void uavPoseCallback(const geometry_msgs::PoseStamped::ConstPtr &msg);
@@ -81,6 +87,7 @@ private:
     //VehicleTask _vehicle_task;
     ros::Subscriber uav_state_sub;
     ros::Subscriber cmd_sub;
+    ros::Subscriber navGoal_sub;
     ros::Publisher local_pos_pub;
     ros::ServiceClient arming_client;
     ros::ServiceClient land_client;
@@ -92,6 +99,7 @@ private:
     ros::Subscriber uav_gps_home_sub;
 
     geometry_msgs::Point pos_init;
+    geometry_msgs::PoseStamped navGoal_sp;
 
     UavTaskState uavTask;
 
@@ -101,6 +109,8 @@ private:
     
     //uav_pose in enu frame
     geometry_msgs::PoseStamped uav_pose;
+
+    geometry_msgs::PoseStamped waypoint_sp;
 
     int _points_id;
     double _missionPeriod;
@@ -114,4 +124,5 @@ private:
 
     bool takeoff_flag; // this flag is set if the drone has took off
     bool takeoff_announced;
+    bool navGoal_init;
 };

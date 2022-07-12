@@ -1,0 +1,13 @@
+<launch>
+
+
+    <include file="$(find mavros)/launch/px4.launch">
+        <arg name="fcu_url" value="udp://:14551@192.168.31.101:14556" />
+        <!--<arg name="fcu_url" value="udp://:14550@192.168.4.1:14556" /> -->
+        <arg name="gcs_url" value="udp://@192.168.31.247"/>
+<!-- -->
+        <arg name="tgt_system" value="1"/>
+    </include>
+
+
+</launch>
