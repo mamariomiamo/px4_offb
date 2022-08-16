@@ -12,7 +12,6 @@ find_package(catkin REQUIRED COMPONENTS
   mavros_msgs
   roscpp
   std_msgs
-  common_msgs
 )
 
 ## System dependencies are found with CMake's conventions
@@ -107,7 +106,7 @@ find_package(catkin REQUIRED COMPONENTS
 catkin_package(
 #  INCLUDE_DIRS include
 #  LIBRARIES px4_offb
-  CATKIN_DEPENDS geometry_msgs mavros_msgs roscpp std_msgs common_msgs
+  CATKIN_DEPENDS geometry_msgs mavros_msgs roscpp std_msgs
 #  DEPENDS system_lib
 )
 

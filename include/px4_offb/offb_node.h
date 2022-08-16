@@ -5,8 +5,6 @@
 #include <mavros_msgs/State.h>
 #include <mavros_msgs/PositionTarget.h>
 #include <mavros_msgs/CommandTOL.h> 
-#include <common_msgs/state.h>
-#include <common_msgs/target.h>
 #include <sensor_msgs/NavSatFix.h>
 #include <mavros_msgs/HomePosition.h>
 #include <std_msgs/Byte.h>
@@ -103,9 +101,10 @@ private:
 
     UavTaskState uavTask;
 
-    std::vector<common_msgs::state> _traj_list;
+    std::vector<mavros_msgs::PositionTarget> _traj_list;
     std::string trajectory_location;
     mavros_msgs::State uav_current_state;
+    mavros_msgs::CommandBool arm_cmd_;
     
     //uav_pose in enu frame
     geometry_msgs::PoseStamped uav_pose;
@@ -125,4 +124,5 @@ private:
     bool takeoff_flag; // this flag is set if the drone has took off
     bool takeoff_announced;
     bool navGoal_init;
+    bool arm_safety_check;
 };

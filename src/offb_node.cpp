@@ -24,7 +24,7 @@ OffbNode::OffbNode(ros::NodeHandle &nodeHandle) : _nh(nodeHandle)
 
     local_pos_pub = _nh.advertise<geometry_msgs::PoseStamped>("/mavros/setpoint_position/local", 10);
 
-    arming_client = _nh.serviceClient<mavros_msgs::CommandBool>("/mavros/cmd/arming"); // Not used
+    arming_client = _nh.serviceClient<mavros_msgs::CommandBool>("/mavros/cmd/arming");
 
     takeoff_client = _nh.serviceClient<mavros_msgs::CommandTOL>("/mavros/cmd/takeoff");
 
@@ -47,6 +47,8 @@ OffbNode::OffbNode(ros::NodeHandle &nodeHandle) : _nh(nodeHandle)
 
     _nh.param<std::string>("WP_Location", trajectory_location, "/home/catkin_ws/src/px4_offb/param/waypoints.txt");
     std::cout << "WP_Location: " << trajectory_location << std::endl;
+
+    _nh.param<bool>("arm_safety_check", arm_safety_check, true);
 
     ROS_INFO("Offboard node is ready!");
 }
@@ -104,7 +106,7 @@ void OffbNode::missionTimer(const ros::TimerEvent &)
 
     case kWaypoint:
     {
-        if(navGoal_init)
+        if (navGoal_init)
         {
             waypoint_sp = navGoal_sp;
             local_pos_pub.publish(waypoint_sp);
@@ -118,7 +120,6 @@ void OffbNode::missionTimer(const ros::TimerEvent &)
             local_pos_pub.publish(waypoint_sp);
             break;
         }
-
     }
 
     case kMission:
@@ -128,20 +129,20 @@ void OffbNode::missionTimer(const ros::TimerEvent &)
         if (_points_id <= _traj_list.size() - 1)
         {
             std::cout << "Go to next ref: " << _points_id << std::endl;
-            std::cout << "Position: " << _traj_list[_points_id].pos.x << " " << _traj_list[_points_id].pos.y << " " << _traj_list[_points_id].pos.z << std::endl;
-            std::cout << "Velocity: " << _traj_list[_points_id].vel.x << " " << _traj_list[_points_id].vel.y << " " << _traj_list[_points_id].vel.z << std::endl;
-            std::cout << "Aceleration: " << _traj_list[_points_id].acc.x << " " << _traj_list[_points_id].acc.y << " " << _traj_list[_points_id].acc.z << std::endl;
-            pos_sp.position.x = _traj_list[_points_id].pos.x;
-            pos_sp.position.y = _traj_list[_points_id].pos.y;
-            pos_sp.position.z = _traj_list[_points_id].pos.z;
-            pos_sp.velocity.x = _traj_list[_points_id].vel.x;
-            pos_sp.velocity.y = _traj_list[_points_id].vel.y;
-            pos_sp.velocity.z = _traj_list[_points_id].vel.z;
-            pos_sp.acceleration_or_force.x = _traj_list[_points_id].acc.x;
-            pos_sp.acceleration_or_force.y = _traj_list[_points_id].acc.y;
-            pos_sp.acceleration_or_force.z = _traj_list[_points_id].acc.z;
-            //pos_sp.yaw = atan2(pos_sp.velocity.y, pos_sp.velocity.x); // yaw control
-            pos_sp.yaw = 0; //fixed yaw
+            std::cout << "Position: " << _traj_list[_points_id].position.x << " " << _traj_list[_points_id].position.y << " " << _traj_list[_points_id].position.z << std::endl;
+            std::cout << "Velocity: " << _traj_list[_points_id].velocity.x << " " << _traj_list[_points_id].velocity.y << " " << _traj_list[_points_id].velocity.z << std::endl;
+            std::cout << "Aceleration: " << _traj_list[_points_id].acceleration_or_force.x << " " << _traj_list[_points_id].acceleration_or_force.y << " " << _traj_list[_points_id].acceleration_or_force.z << std::endl;
+            pos_sp.position.x = _traj_list[_points_id].position.x;
+            pos_sp.position.y = _traj_list[_points_id].position.y;
+            pos_sp.position.z = _traj_list[_points_id].position.z;
+            pos_sp.velocity.x = _traj_list[_points_id].velocity.x;
+            pos_sp.velocity.y = _traj_list[_points_id].velocity.y;
+            pos_sp.velocity.z = _traj_list[_points_id].velocity.z;
+            pos_sp.acceleration_or_force.x = _traj_list[_points_id].acceleration_or_force.x;
+            pos_sp.acceleration_or_force.y = _traj_list[_points_id].acceleration_or_force.y;
+            pos_sp.acceleration_or_force.z = _traj_list[_points_id].acceleration_or_force.z;
+            // pos_sp.yaw = atan2(pos_sp.velocity.y, pos_sp.velocity.x); // yaw control
+            pos_sp.yaw = 0; // fixed yaw
             pos_sp.coordinate_frame = mavros_msgs::PositionTarget::FRAME_LOCAL_NED;
 
             _points_id++;
@@ -150,18 +151,18 @@ void OffbNode::missionTimer(const ros::TimerEvent &)
         {
             _points_id--;
             std::cout << "Hold last ref: " << _points_id << std::endl;
-            std::cout << "Position: " << _traj_list[_points_id].pos.x << " " << _traj_list[_points_id].pos.y << " " << _traj_list[_points_id].pos.z << std::endl;
-            std::cout << "Velocity: " << _traj_list[_points_id].vel.x << " " << _traj_list[_points_id].vel.y << " " << _traj_list[_points_id].vel.z << std::endl;
-            std::cout << "Aceleration: " << _traj_list[_points_id].acc.x << " " << _traj_list[_points_id].acc.y << " " << _traj_list[_points_id].acc.z << std::endl;
-            pos_sp.position.x = _traj_list[_points_id].pos.x;
-            pos_sp.position.y = _traj_list[_points_id].pos.y;
-            pos_sp.position.z = _traj_list[_points_id].pos.z;
-            pos_sp.velocity.x = _traj_list[_points_id].vel.x;
-            pos_sp.velocity.y = _traj_list[_points_id].vel.y;
-            pos_sp.velocity.z = _traj_list[_points_id].vel.z;
-            pos_sp.acceleration_or_force.x = _traj_list[_points_id].acc.x;
-            pos_sp.acceleration_or_force.y = _traj_list[_points_id].acc.y;
-            pos_sp.acceleration_or_force.z = _traj_list[_points_id].acc.z;
+            std::cout << "Position: " << _traj_list[_points_id].position.x << " " << _traj_list[_points_id].position.y << " " << _traj_list[_points_id].position.z << std::endl;
+            std::cout << "Velocity: " << _traj_list[_points_id].velocity.x << " " << _traj_list[_points_id].velocity.y << " " << _traj_list[_points_id].velocity.z << std::endl;
+            std::cout << "Aceleration: " << _traj_list[_points_id].acceleration_or_force.x << " " << _traj_list[_points_id].acceleration_or_force.y << " " << _traj_list[_points_id].acceleration_or_force.z << std::endl;
+            pos_sp.position.x = _traj_list[_points_id].position.x;
+            pos_sp.position.y = _traj_list[_points_id].position.y;
+            pos_sp.position.z = _traj_list[_points_id].position.z;
+            pos_sp.velocity.x = _traj_list[_points_id].velocity.x;
+            pos_sp.velocity.y = _traj_list[_points_id].velocity.y;
+            pos_sp.velocity.z = _traj_list[_points_id].velocity.z;
+            pos_sp.acceleration_or_force.x = _traj_list[_points_id].acceleration_or_force.x;
+            pos_sp.acceleration_or_force.y = _traj_list[_points_id].acceleration_or_force.y;
+            pos_sp.acceleration_or_force.z = _traj_list[_points_id].acceleration_or_force.z;
             pos_sp.coordinate_frame = mavros_msgs::PositionTarget::FRAME_LOCAL_NED;
             _points_id++;
         }
@@ -214,7 +215,7 @@ bool OffbNode::set_offboard()
     ros::Time last_request = ros::Time::now();
     mavros_msgs::PositionTarget init_sp;
     init_sp.coordinate_frame = mavros_msgs::PositionTarget::FRAME_LOCAL_NED; // To be converted to NED in setpoint_raw plugin
-    //FIXME check
+    // FIXME check
     init_sp.position.x = uav_pose.pose.position.x;
     init_sp.position.y = uav_pose.pose.position.y;
     init_sp.position.z = uav_pose.pose.position.z;
@@ -227,7 +228,7 @@ bool OffbNode::set_offboard()
     init_sp.yaw = 0;
     init_sp.coordinate_frame = mavros_msgs::PositionTarget::FRAME_LOCAL_NED;
 
-    //send a few setpoints before starting
+    // send a few setpoints before starting
     for (int i = 100; ros::ok() && i > 0; --i)
     {
         Position_Setpoint_Pub.publish(init_sp);
@@ -240,11 +241,13 @@ bool OffbNode::set_offboard()
 
     bool is_mode_ready = false;
     last_request = ros::Time::now();
+    arm_cmd_.request.value = true;
+
 
     while (!is_mode_ready)
     {
         if (uav_current_state.mode != "OFFBOARD" &&
-            (ros::Time::now() - last_request > ros::Duration(1.0)))
+            (ros::Time::now() - last_request > ros::Duration(5.0)))
         {
             ROS_INFO("Try set offboard");
             if (set_mode_client.call(offb_set_mode) &&
@@ -256,9 +259,19 @@ bool OffbNode::set_offboard()
         }
         else
         {
-            is_mode_ready = (uav_current_state.mode == "OFFBOARD");
+            if (!uav_current_state.armed && (ros::Time::now() - last_request > ros::Duration(5.0)))
+            {
+                ROS_INFO("Try Arming");
+                if (arming_client.call(arm_cmd_) && arm_cmd_.response.success)
+                {
+                    ROS_INFO("Vehicle armed");
+                }
+                last_request = ros::Time::now();
+            }
+            //is_mode_ready = (uav_current_state.mode == "OFFBOARD");
         }
         Position_Setpoint_Pub.publish(init_sp);
+        is_mode_ready = (uav_current_state.mode == "OFFBOARD" && uav_current_state.armed);
         ros::spinOnce();
         rate.sleep();
     }
@@ -277,13 +290,17 @@ void OffbNode::cmd_cb(const std_msgs::Byte::ConstPtr &msg)
     ROS_INFO("user cmd received");
     switch (cmd)
     {
-    case TAKEOFF: //1
+    case TAKEOFF: // 1
     {
-        if (!uav_current_state.armed)
+        if (arm_safety_check)
         {
-            ROS_ERROR("Vehicle is not armed, please ask safety pilot to arm the vehicle.");
-            break;
+            if (!uav_current_state.armed)
+            {
+                ROS_ERROR("Vehicle is not armed, please ask safety pilot to arm the vehicle.");
+                break;
+            }
         }
+
         ROS_INFO("TAKEOFF command received!");
         uavTask = kTakeOff;
         takeoff_height = uav_pose.pose.position.z + 1.0;
@@ -299,7 +316,7 @@ void OffbNode::cmd_cb(const std_msgs::Byte::ConstPtr &msg)
         break;
     }
 
-    case WAYPOINT: //2
+    case WAYPOINT: // 2
     {
         if (!takeoff_flag)
         {
@@ -308,14 +325,14 @@ void OffbNode::cmd_cb(const std_msgs::Byte::ConstPtr &msg)
         }
         ROS_INFO("Waypoint command received!");
         uavTask = kWaypoint;
-        if(!navGoal_init)
+        if (!navGoal_init)
         {
             navGoal_sp = uav_pose;
         }
         break;
     }
 
-    case MISSION: //3
+    case MISSION: // 3
     {
         if (!takeoff_flag)
         {
@@ -365,7 +382,7 @@ bool OffbNode::loadTrajectory()
     if (!f.good())
     {
         ROS_ERROR("Wrong file name!");
-        printf("%s\n",trajectory_location.c_str());
+        printf("%s\n", trajectory_location.c_str());
         return false;
     }
 
@@ -379,20 +396,20 @@ bool OffbNode::loadTrajectory()
             ROS_ERROR("The data size is not correct!");
             return false;
         } // error
-        common_msgs::state p;
-        p.pos.x = _1;
-        p.pos.y = _2;
-        p.pos.z = _3;
-        p.vel.x = _4;
-        p.vel.y = _5;
-        p.vel.z = _6;
-        p.acc.x = _7;
-        p.acc.y = _8;
-        p.acc.z = _9;
+        mavros_msgs::PositionTarget p;
+        p.position.x = _1;
+        p.position.y = _2;
+        p.position.z = _3;
+        p.velocity.x = _4;
+        p.velocity.y = _5;
+        p.velocity.z = _6;
+        p.acceleration_or_force.x = _7;
+        p.acceleration_or_force.y = _8;
+        p.acceleration_or_force.z = _9;
         _traj_list.push_back(p);
-        std::cout << "Position : " << _traj_list[_points_id].pos.x << " " << _traj_list[_points_id].pos.y << " " << _traj_list[_points_id].pos.z << " "
-                  << "Velocity : " << _traj_list[_points_id].vel.x << " " << _traj_list[_points_id].vel.y << " " << _traj_list[_points_id].vel.z << " "
-                  << "Accel : " << _traj_list[_points_id].acc.x << " " << _traj_list[_points_id].acc.y << " " << _traj_list[_points_id].acc.z << " "
+        std::cout << "Position : " << _traj_list[_points_id].position.x << " " << _traj_list[_points_id].position.y << " " << _traj_list[_points_id].position.z << " "
+                  << "Velocity : " << _traj_list[_points_id].velocity.x << " " << _traj_list[_points_id].velocity.y << " " << _traj_list[_points_id].velocity.z << " "
+                  << "Accel : " << _traj_list[_points_id].acceleration_or_force.x << " " << _traj_list[_points_id].acceleration_or_force.y << " " << _traj_list[_points_id].acceleration_or_force.z << " "
                   << std::endl;
 
         _points_id++;
