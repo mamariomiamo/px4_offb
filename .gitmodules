@@ -1,0 +1,3 @@
+[submodule "rviz_plugin"]
+	path = rviz_plugin
+	url = https://github.com/mamariomiamo/rviz_plugin
