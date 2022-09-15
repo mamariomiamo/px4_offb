@@ -1,3 +1,6 @@
 [submodule "rviz_plugin"]
 	path = rviz_plugin
 	url = https://github.com/mamariomiamo/rviz_plugin
+[submodule "trajectory_publisher"]
+	path = trajectory_publisher
+	url = https://github.com/mamariomiamo/trajectory_publisher

@@ -14,13 +14,25 @@ OffbNode::OffbNode(ros::NodeHandle &nodeHandle) : _nh(nodeHandle)
 
     // publish file timer
     _nh.param("missionPeriod", _missionPeriod, 0.2);
+    _nh.param("user_give_goal", user_give_goal_, true);
+
+
     std::cout << "missionPeriod: " << _missionPeriod << std::endl;
 
     cmd_sub = _nh.subscribe<std_msgs::Byte>("/user_cmd", 1, &OffbNode::cmd_cb, this);
 
-    navGoal_sub = _nh.subscribe<geometry_msgs::PoseStamped>("/goal", 1, &OffbNode::navGoal_cb, this);
-
     uav_state_sub = _nh.subscribe<mavros_msgs::State>("/mavros/state", 10, &OffbNode::uavStateCallBack, this);
+
+    ref_pose_sub = _nh.subscribe<geometry_msgs::PoseStamped>("/uav/ref_pose/nwu", 1, &OffbNode::refPoseCallBack, this);
+
+    if(user_give_goal_)
+    {
+        navGoal_sub = _nh.subscribe<geometry_msgs::PoseStamped>("/goal", 1, &OffbNode::navGoal_cb, this);
+    }
+    else
+    {
+        ref_pose_sub = _nh.subscribe<geometry_msgs::PoseStamped>("/uav/ref_pose/nwu", 1, &OffbNode::refPoseCallBack, this);
+    }
 
     local_pos_pub = _nh.advertise<geometry_msgs::PoseStamped>("/mavros/setpoint_position/local", 10);
 
@@ -55,6 +67,12 @@ OffbNode::OffbNode(ros::NodeHandle &nodeHandle) : _nh(nodeHandle)
 
 OffbNode::~OffbNode()
 {
+}
+
+void OffbNode::refPoseCallBack(const geometry_msgs::PoseStamped::ConstPtr &msg)
+{
+    navGoal_sp = *msg;
+    navGoal_init = true;
 }
 
 void OffbNode::navGoal_cb(const geometry_msgs::PoseStamped::ConstPtr &msg)

@@ -76,6 +76,8 @@ public:
     void gpsCurrentCallback(const sensor_msgs::NavSatFix::ConstPtr &msg);
 
     void gpsHomeCallback(const mavros_msgs::HomePosition::ConstPtr &msg);
+    
+    void refPoseCallBack(const geometry_msgs::PoseStamped::ConstPtr &msg);
 
     // void calculateYaw(const mavros_msgs::PositionTarget::ConstPtr &msg);
     
@@ -86,6 +88,7 @@ private:
     ros::Subscriber uav_state_sub;
     ros::Subscriber cmd_sub;
     ros::Subscriber navGoal_sub;
+    ros::Subscriber ref_pose_sub;
     ros::Publisher local_pos_pub;
     ros::ServiceClient arming_client;
     ros::ServiceClient land_client;
@@ -125,4 +128,5 @@ private:
     bool takeoff_announced;
     bool navGoal_init;
     bool arm_safety_check;
+    bool user_give_goal_;
 };
