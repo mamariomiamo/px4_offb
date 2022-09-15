@@ -61,7 +61,7 @@
     
         </node>
 
-        <include file="$(find trajectory_publisher)/launch/circle_trajectory.launch"></include>
+        <include file="$(find trajectory_publisher)/launch/px4_offb_circle_trajectory.launch"></include>
 
     <!-- </group> -->
 
