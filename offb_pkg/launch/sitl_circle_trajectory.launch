@@ -61,7 +61,12 @@
     
         </node>
 
-        <include file="$(find trajectory_publisher)/launch/px4_offb_circle_trajectory.launch"></include>
+        <include file="$(find trajectory_publisher)/launch/px4_offb_circle_trajectory.launch">
+            <!-- <arg name="speed" value="1.0"/>
+            <arg name="sampling_frequency" value="10000.0"/>
+            <arg name="radius" value="1.0"/>
+            <arg name="trajectory_pub_timer_auto_start" value="false"/> -->
+        </include>
 
     <!-- </group> -->
 
