@@ -1,10 +1,12 @@
 #include "px4_offb/offb_node.h"
-//#include <mavros_msgs/State.h>
+#include "px4_tf2.h"
+
 int main(int argc, char **argv)
 {
     ros::init(argc, argv, "px4_offboard");
     ros::NodeHandle nh("~");
     OffbNode offbn(nh);
+    px4_tf2::px4_tf2 px4_tf2(nh);
     ros::spin();
     return 0;
 }

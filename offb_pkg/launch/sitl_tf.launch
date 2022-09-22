@@ -6,7 +6,7 @@
     <arg name="vehicle" default="iris"/>
     <arg name="world" default="$(find mavlink_sitl_gazebo)/worlds/empty.world"/>
     <!-- gazebo configs -->
-    <arg name="gui" default="true"/>
+    <arg name="gui" default="false"/>
     <arg name="debug" default="false"/>
     <arg name="verbose" default="false"/>
     <arg name="paused" default="false"/>
@@ -23,7 +23,7 @@
     </include>
 
     <!-- drone0 -->
-    <!-- <group ns="drone0"> -->
+    <group ns="drone0">
         <!-- MAVROS and vehicle configs -->
         <arg name="ID" value="0"/>
         <arg name="fcu_url" default="udp://:14540@localhost:14580"/>
@@ -58,8 +58,14 @@
             <param name="WP_Location" value="$(find px4_offb)/waypoints/waypoints.txt"/>
             <param name="arm_safety_check" value="false"/>
             <param name="use_give_goal" value="false"/>
+            <param name="uav_id" value="$(arg xid)"/>
     
         </node>
+
+        <node pkg="tf2_ros" 
+              type="static_transform_publisher" 
+              name="global_to_local" 
+              args="0.0 10.0 0.0 0.0 0.0 -0.7071068 0.7071068 /map /drone0_local_enu"/>
 
         <include file="$(find trajectory_publisher)/launch/px4_offb_circle_trajectory.launch">
             <!-- <arg name="speed" value="1.0"/>
@@ -68,10 +74,10 @@
             <arg name="trajectory_pub_timer_auto_start" value="false"/> -->
         </include>
 
-    <!-- </group> -->
+    </group>
 
     <!-- <node type="rviz" name="rviz" pkg="rviz" args="-d $(find mockamap)/config/mockamap.rviz" /> -->
-    <node type="rviz" name="rviz" pkg="rviz" args="-d $(find px4_offb)/config/px4_offb.rviz" output="screen" />
+    <node type="rviz" name="rviz" pkg="rviz" args="-d $(find px4_offb)/config/px4_tf.rviz" output="screen" />
 
     <node pkg="tf2_ros" type="static_transform_publisher" name="map_to_world" args="0.0 0.0 0.0 0.0 0.0 0.0 1.0 /map /world"/>
     
