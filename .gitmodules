@@ -4,3 +4,6 @@
 [submodule "trajectory_publisher"]
 	path = trajectory_publisher
 	url = https://github.com/mamariomiamo/trajectory_publisher
+[submodule "offb_pkg/offboard_controller_lib"]
+	path = offb_pkg/offboard_controller_lib
+	url = git@github.com:mamariomiamo/offboard_controller_lib.git

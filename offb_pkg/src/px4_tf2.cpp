@@ -22,14 +22,16 @@ namespace px4_tf2
         m_timer_started_ = false;
     }
 
+    // we publish the transformation between /droneX/local_enu i.e. drone local origin (parent) and /drone0 (child) in poseCallback
+
     void px4_tf2::poseCallback(const geometry_msgs::PoseStampedConstPtr &msg)
     {
         static tf2_ros::TransformBroadcaster br;
         geometry_msgs::TransformStamped transformStamped;
 
         transformStamped.header.stamp = ros::Time::now();
-        transformStamped.header.frame_id = m_uav_id_+ "_" + "local_enu";
-        transformStamped.child_frame_id = m_uav_id_;
+        transformStamped.header.frame_id = m_uav_id_+ "_" + "local_enu_origin"; // parent frame
+        transformStamped.child_frame_id = m_uav_id_ + "_body"; // child frame
         transformStamped.transform.translation.x = msg->pose.position.x;
         transformStamped.transform.translation.y = msg->pose.position.y;
         transformStamped.transform.translation.z = msg->pose.position.z;
@@ -54,8 +56,10 @@ namespace px4_tf2
         geometry_msgs::TransformStamped transformStamped;
         try
         {
-            transformStamped = tfBuffer.lookupTransform("map", m_uav_id_,
+            transformStamped = tfBuffer.lookupTransform("map", m_uav_id_ + "_body",
                                                         ros::Time(0));
+                                                        // first argument is target frame
+                                                        // second argument is source frame
         }
         catch (tf2::TransformException &ex)
         {
