@@ -3,7 +3,7 @@
     <node pkg="px4_offb" type="px4_offb_node" name="offboard_node" output="screen">
         <param name="WP_Location" value="$(find px4_offb)/waypoints/waypoints.txt"/>
         <param name="arm_safety_check" value="false"/>
-        <param name="use_give_goal" value="true"/>
+        <param name="user_give_goal" value="true"/>
 
     </node>
 

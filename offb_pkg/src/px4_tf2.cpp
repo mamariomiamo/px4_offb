@@ -11,8 +11,14 @@ namespace px4_tf2
     {
         nh_.param<std::string>("uav_id", m_uav_id_, "");
 
-        uav_pose_sub_ = nh_.subscribe<geometry_msgs::PoseStamped>( 
+        uav_pose_sub_ = nh_.subscribe<geometry_msgs::PoseStamped>(
             "/" + m_uav_id_ + "/mavros/local_position/pose", 1, &px4_tf2::poseCallback, this);
+
+        navGoal_sub = nh.subscribe<geometry_msgs::PoseStamped>(
+            "/goal", 1, &px4_tf2::navGoal_cb, this);
+
+        ref_pose_sub = nh.subscribe<geometry_msgs::PoseStamped>(
+            "/uav/ref_pose/nwu", 1, &px4_tf2::refPoseCallBack, this);
 
         global_nwu_pose_pub_ =
             nh_.advertise<geometry_msgs::PoseStamped>("/" + m_uav_id_ + "/" + "global_nwu", 10);
@@ -30,8 +36,8 @@ namespace px4_tf2
         geometry_msgs::TransformStamped transformStamped;
 
         transformStamped.header.stamp = ros::Time::now();
-        transformStamped.header.frame_id = m_uav_id_+ "_" + "local_enu_origin"; // parent frame
-        transformStamped.child_frame_id = m_uav_id_ + "_body"; // child frame
+        transformStamped.header.frame_id = m_uav_id_ + "_" + "local_enu_origin"; // parent frame
+        transformStamped.child_frame_id = m_uav_id_ + "_body";                   // child frame
         transformStamped.transform.translation.x = msg->pose.position.x;
         transformStamped.transform.translation.y = msg->pose.position.y;
         transformStamped.transform.translation.z = msg->pose.position.z;
@@ -51,6 +57,20 @@ namespace px4_tf2
         }
     }
 
+    void px4_tf2::navGoal_cb(const geometry_msgs::PoseStamped::ConstPtr &msg)
+    {
+        navGoal_sp = *msg;
+        std::cout << "navGoal_sp received, require converion to from map to local_enu" << std::endl;
+        // navGoal_init = true;
+    }
+
+    void px4_tf2::refPoseCallBack(const geometry_msgs::PoseStamped::ConstPtr &msg)
+    {
+        navGoal_sp = *msg;
+        std::cout << "refPose received, require converion to from map to local_enu" << std::endl;
+        // navGoal_init = true;
+    }
+
     void px4_tf2::listenerTimerCb(const ros::TimerEvent &)
     {
         geometry_msgs::TransformStamped transformStamped;
@@ -58,8 +78,8 @@ namespace px4_tf2
         {
             transformStamped = tfBuffer.lookupTransform("map", m_uav_id_ + "_body",
                                                         ros::Time(0));
-                                                        // first argument is target frame
-                                                        // second argument is source frame
+            // first argument is target frame
+            // second argument is source frame
         }
         catch (tf2::TransformException &ex)
         {

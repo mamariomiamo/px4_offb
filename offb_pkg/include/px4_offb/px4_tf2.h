@@ -20,7 +20,7 @@ namespace px4_tf2
 
         ros::NodeHandle nh_;
 
-        ros::Subscriber uav_pose_sub_;
+        ros::Subscriber uav_pose_sub_, navGoal_sub, ref_pose_sub;
 
         ros::Publisher global_nwu_pose_pub_;
 
@@ -30,10 +30,16 @@ namespace px4_tf2
 
         std::string m_uav_id_;
 
+        geometry_msgs::PoseStamped navGoal_sp;
+
         tf2_ros::Buffer tfBuffer;
         tf2_ros::TransformListener tfListener;
 
         void poseCallback(const geometry_msgs::PoseStampedConstPtr & msg);
+
+        void navGoal_cb(const geometry_msgs::PoseStamped::ConstPtr &msg);
+
+        void refPoseCallBack(const geometry_msgs::PoseStamped::ConstPtr &msg);
 
         void listenerTimerCb(const ros::TimerEvent &);
 
