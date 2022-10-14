@@ -9,6 +9,7 @@
 
 #include <geometry_msgs/PoseStamped.h>
 #include <iostream>
+#include <Eigen/Dense>
 
 namespace px4_tf2
 {
@@ -22,11 +23,11 @@ namespace px4_tf2
 
         ros::Subscriber uav_pose_sub_, navGoal_sub, ref_pose_sub;
 
-        ros::Publisher global_nwu_pose_pub_;
+        ros::Publisher global_nwu_pose_pub_, navGoal_enu_pub_;
 
         ros::Timer listener_timer_;
 
-        bool m_timer_started_;
+        bool m_timer_started_, init_map_to_enu_homo_;
 
         std::string m_uav_id_;
 
@@ -42,6 +43,10 @@ namespace px4_tf2
         void refPoseCallBack(const geometry_msgs::PoseStamped::ConstPtr &msg);
 
         void listenerTimerCb(const ros::TimerEvent &);
+
+        Eigen::Matrix3d map_to_enu_rot;
+        Eigen::Vector3d map_to_enu_trans;
+        Eigen::Affine3d map_to_enu_homo;
 
     };
 
