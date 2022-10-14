@@ -113,7 +113,7 @@ namespace px4_tf2
 
     void px4_tf2::listenerTimerCb(const ros::TimerEvent &)
     {
-        if (!init_map_to_enu_rot_)
+        if (!init_map_to_enu_homo_)
         {
             geometry_msgs::TransformStamped transformStamped;
             try

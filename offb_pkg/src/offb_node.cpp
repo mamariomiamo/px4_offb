@@ -15,47 +15,52 @@ OffbNode::OffbNode(ros::NodeHandle &nodeHandle) : _nh(nodeHandle)
     // publish file timer
     _nh.param("missionPeriod", _missionPeriod, 0.2);
     _nh.param("user_give_goal", user_give_goal_, true);
-
+    _nh.param("use_px4Ctrl", use_px4Ctrl, false);
+    _nh.param<std::string>("uav_id", uav_id_, "");
 
     std::cout << "missionPeriod: " << _missionPeriod << std::endl;
 
     cmd_sub = _nh.subscribe<std_msgs::Byte>("/user_cmd", 1, &OffbNode::cmd_cb, this);
 
-    uav_state_sub = _nh.subscribe<mavros_msgs::State>("/mavros/state", 10, &OffbNode::uavStateCallBack, this);
+    uav_state_sub = _nh.subscribe<mavros_msgs::State>("/" + uav_id_ + "/mavros/state", 10, &OffbNode::uavStateCallBack, this);
 
     ref_pose_sub = _nh.subscribe<geometry_msgs::PoseStamped>("/uav/ref_pose/nwu", 1, &OffbNode::refPoseCallBack, this);
 
-    if(user_give_goal_)
+    trajectory_point_nwu_sub = _nh.subscribe<quadrotor_msgs::TrajectoryPoint>("/uav/trajectory_point/nwu", 20, &OffbNode::refTrajPtCallBack, this);
+
+    if (user_give_goal_)
     {
-        navGoal_sub = _nh.subscribe<geometry_msgs::PoseStamped>("/goal", 1, &OffbNode::navGoal_cb, this);
+        // navGoal_sub = _nh.subscribe<geometry_msgs::PoseStamped>("/goal", 1, &OffbNode::navGoal_cb, this);
+        navGoal_sub = _nh.subscribe<geometry_msgs::PoseStamped>("/" + uav_id_ + "/" + "navGoal_enu", 
+                                                                    1, &OffbNode::navGoal_cb, this);
     }
     else
     {
         ref_pose_sub = _nh.subscribe<geometry_msgs::PoseStamped>("/uav/ref_pose/nwu", 1, &OffbNode::refPoseCallBack, this);
     }
 
-    local_pos_pub = _nh.advertise<geometry_msgs::PoseStamped>("/mavros/setpoint_position/local", 10);
+    local_pos_pub = _nh.advertise<geometry_msgs::PoseStamped>("/" + uav_id_ + "/mavros/setpoint_position/local", 10);
 
-    arming_client = _nh.serviceClient<mavros_msgs::CommandBool>("/mavros/cmd/arming");
+    arming_client = _nh.serviceClient<mavros_msgs::CommandBool>("/" + uav_id_ + "/mavros/cmd/arming");
 
-    takeoff_client = _nh.serviceClient<mavros_msgs::CommandTOL>("/mavros/cmd/takeoff");
+    takeoff_client = _nh.serviceClient<mavros_msgs::CommandTOL>("/" + uav_id_ + "/mavros/cmd/takeoff");
 
-    land_client = _nh.serviceClient<mavros_msgs::CommandTOL>("/mavros/cmd/land");
+    land_client = _nh.serviceClient<mavros_msgs::CommandTOL>("/" + uav_id_ + "/mavros/cmd/land");
 
-    set_mode_client = _nh.serviceClient<mavros_msgs::SetMode>("/mavros/set_mode");
+    set_mode_client = _nh.serviceClient<mavros_msgs::SetMode>("/" + uav_id_ + "/mavros/set_mode");
 
-    Position_Setpoint_Pub = _nh.advertise<mavros_msgs::PositionTarget>("/mavros/setpoint_raw/local", 10); // Publisher that publishes control setpoints to mavros
+    Position_Setpoint_Pub = _nh.advertise<mavros_msgs::PositionTarget>("/" + uav_id_ + "/mavros/setpoint_raw/local", 10); // Publisher that publishes control setpoints to mavros
 
     mission_timer = _nh.createTimer(ros::Duration(0.05), &OffbNode::missionTimer, this, false, false);
     // get current uav pose
     uav_pose_sub = _nh.subscribe<geometry_msgs::PoseStamped>(
-        "/mavros/local_position/pose", 1, &OffbNode::uavPoseCallback, this);
+        "/" + uav_id_ + "/mavros/local_position/pose", 1, &OffbNode::uavPoseCallback, this);
 
     uav_gps_cur_sub = _nh.subscribe<sensor_msgs::NavSatFix>(
-        "/mavros/global_position/global", 1, &OffbNode::gpsCurrentCallback, this);
+        "/" + uav_id_ + "/mavros/global_position/global", 1, &OffbNode::gpsCurrentCallback, this);
 
     uav_gps_home_sub = _nh.subscribe<mavros_msgs::HomePosition>(
-        "/mavros/home_position/home", 1, &OffbNode::gpsHomeCallback, this);
+        "/" + uav_id_ + "/mavros/home_position/home", 1, &OffbNode::gpsHomeCallback, this);
 
     _nh.param<std::string>("WP_Location", trajectory_location, "/home/catkin_ws/src/px4_offb/param/waypoints.txt");
     std::cout << "WP_Location: " << trajectory_location << std::endl;
@@ -63,6 +68,7 @@ OffbNode::OffbNode(ros::NodeHandle &nodeHandle) : _nh(nodeHandle)
     _nh.param<bool>("arm_safety_check", arm_safety_check, true);
 
     ROS_INFO("Offboard node is ready!");
+    std::cout << "for uav " << uav_id_ << std::endl;
 }
 
 OffbNode::~OffbNode()
@@ -124,20 +130,42 @@ void OffbNode::missionTimer(const ros::TimerEvent &)
 
     case kWaypoint:
     {
-        if (navGoal_init)
-        {
-            waypoint_sp = navGoal_sp;
-            local_pos_pub.publish(waypoint_sp);
-            break;
-        }
-        else // no user input nav goal, just use takeoff pose
-        {
-            waypoint_sp.pose.position.x = takeoff_x;
-            waypoint_sp.pose.position.y = takeoff_y;
-            waypoint_sp.pose.position.z = takeoff_height;
-            local_pos_pub.publish(waypoint_sp);
-            break;
-        }
+        // if (use_px4Ctrl)
+        // {
+            if (navGoal_init)
+            {
+
+                if (user_give_goal_)
+                {
+                    local_pos_pub.publish(navGoal_sp);
+                    break;
+                }
+
+                else
+                {
+                    waypoint_sp.pose.position.x = traj_pt_nwu.position.x; // take this as position setpoint in local enu frame
+                    waypoint_sp.pose.position.y = traj_pt_nwu.position.y;
+                    waypoint_sp.pose.position.z = traj_pt_nwu.position.z;
+                    local_pos_pub.publish(waypoint_sp);
+                    break;
+                }
+            }
+            else // no user input nav goal, just use takeoff pose
+            {
+                waypoint_sp.pose.position.x = takeoff_x;
+                waypoint_sp.pose.position.y = takeoff_y;
+                waypoint_sp.pose.position.z = takeoff_height;
+                local_pos_pub.publish(waypoint_sp);
+                break;
+            }
+        // }
+
+        // else
+        // {
+        //     // use offoard position mode here
+        //     break;
+        // }
+
     }
 
     case kMission:
@@ -261,7 +289,6 @@ bool OffbNode::set_offboard()
     last_request = ros::Time::now();
     arm_cmd_.request.value = true;
 
-
     while (!is_mode_ready)
     {
         if (uav_current_state.mode != "OFFBOARD" &&
@@ -286,7 +313,7 @@ bool OffbNode::set_offboard()
                 }
                 last_request = ros::Time::now();
             }
-            //is_mode_ready = (uav_current_state.mode == "OFFBOARD");
+            // is_mode_ready = (uav_current_state.mode == "OFFBOARD");
         }
         Position_Setpoint_Pub.publish(init_sp);
         is_mode_ready = (uav_current_state.mode == "OFFBOARD" && uav_current_state.armed);
@@ -444,4 +471,9 @@ void OffbNode::clearTrajectory()
     _traj_list.clear();
     _points_id = 0;
     ROS_INFO("Clear Mission");
+}
+
+void OffbNode::refTrajPtCallBack(const quadrotor_msgs::TrajectoryPoint::ConstPtr &msg)
+{
+    traj_pt_nwu = *msg;
 }

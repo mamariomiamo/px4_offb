@@ -13,6 +13,8 @@
 #include <fstream>
 #include <iostream>
 #include <tf/transform_listener.h>
+#include "quadrotor_msgs/TrajectoryPoint.h"
+#include "offb_ctrl.h"
 // #define ENGINE0 0
 // #define TAKEOFF 1
 #define TAKEOFF 1
@@ -79,6 +81,10 @@ public:
     
     void refPoseCallBack(const geometry_msgs::PoseStamped::ConstPtr &msg);
 
+    // void refTrajPtCallBack(const quadrotor_msgs::TrajectoryPoint &msg);
+
+    void refTrajPtCallBack(const quadrotor_msgs::TrajectoryPoint::ConstPtr &msg);
+
     // void calculateYaw(const mavros_msgs::PositionTarget::ConstPtr &msg);
     
 
@@ -89,6 +95,7 @@ private:
     ros::Subscriber cmd_sub;
     ros::Subscriber navGoal_sub;
     ros::Subscriber ref_pose_sub;
+    ros::Subscriber trajectory_point_nwu_sub;
     ros::Publisher local_pos_pub;
     ros::ServiceClient arming_client;
     ros::ServiceClient land_client;
@@ -114,6 +121,10 @@ private:
 
     geometry_msgs::PoseStamped waypoint_sp;
 
+    quadrotor_msgs::TrajectoryPoint traj_pt_nwu;
+
+    // geometry_msgs::PoseStamped traj_pt_nwu;
+
     int _points_id;
     double _missionPeriod;
     double takeoff_height;
@@ -129,4 +140,7 @@ private:
     bool navGoal_init;
     bool arm_safety_check;
     bool user_give_goal_;
+    bool use_px4Ctrl;
+
+    std::string uav_id_;
 };
