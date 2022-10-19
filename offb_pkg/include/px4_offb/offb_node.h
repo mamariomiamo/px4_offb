@@ -85,6 +85,7 @@ public:
 
     void refTrajPtCallBack(const quadrotor_msgs::TrajectoryPoint::ConstPtr &msg);
 
+    void trajSpENUCallBack(const quadrotor_msgs::TrajectoryPoint::ConstPtr &msg);
     // void calculateYaw(const mavros_msgs::PositionTarget::ConstPtr &msg);
     
 
@@ -105,6 +106,7 @@ private:
     ros::Subscriber uav_pose_sub;
     ros::Subscriber uav_gps_cur_sub;
     ros::Subscriber uav_gps_home_sub;
+    ros::Subscriber traj_sp_enu_sub;
 
     geometry_msgs::Point pos_init;
     geometry_msgs::PoseStamped navGoal_sp;
@@ -122,6 +124,7 @@ private:
     geometry_msgs::PoseStamped waypoint_sp;
 
     quadrotor_msgs::TrajectoryPoint traj_pt_nwu;
+    quadrotor_msgs::TrajectoryPoint traj_sp_enu;
 
     // geometry_msgs::PoseStamped traj_pt_nwu;
 

@@ -28,11 +28,12 @@ OffbNode::OffbNode(ros::NodeHandle &nodeHandle) : _nh(nodeHandle)
 
     trajectory_point_nwu_sub = _nh.subscribe<quadrotor_msgs::TrajectoryPoint>("/uav/trajectory_point/nwu", 20, &OffbNode::refTrajPtCallBack, this);
 
+    traj_sp_enu_sub = _nh.subscribe<quadrotor_msgs::TrajectoryPoint>("/" + uav_id_ + "/" + "traj_sp_enu", 20, &OffbNode::trajSpENUCallBack, this);
     if (user_give_goal_)
     {
         // navGoal_sub = _nh.subscribe<geometry_msgs::PoseStamped>("/goal", 1, &OffbNode::navGoal_cb, this);
-        navGoal_sub = _nh.subscribe<geometry_msgs::PoseStamped>("/" + uav_id_ + "/" + "navGoal_enu", 
-                                                                    1, &OffbNode::navGoal_cb, this);
+        navGoal_sub = _nh.subscribe<geometry_msgs::PoseStamped>("/" + uav_id_ + "/" + "navGoal_enu",
+                                                                1, &OffbNode::navGoal_cb, this);
     }
     else
     {
@@ -132,32 +133,38 @@ void OffbNode::missionTimer(const ros::TimerEvent &)
     {
         // if (use_px4Ctrl)
         // {
-            if (navGoal_init)
+        if (navGoal_init)
+        {
+
+            if (user_give_goal_)
             {
-
-                if (user_give_goal_)
-                {
-                    local_pos_pub.publish(navGoal_sp);
-                    break;
-                }
-
-                else
-                {
-                    waypoint_sp.pose.position.x = traj_pt_nwu.position.x; // take this as position setpoint in local enu frame
-                    waypoint_sp.pose.position.y = traj_pt_nwu.position.y;
-                    waypoint_sp.pose.position.z = traj_pt_nwu.position.z;
-                    local_pos_pub.publish(waypoint_sp);
-                    break;
-                }
+                local_pos_pub.publish(navGoal_sp);
+                break;
             }
-            else // no user input nav goal, just use takeoff pose
+
+            else
             {
-                waypoint_sp.pose.position.x = takeoff_x;
-                waypoint_sp.pose.position.y = takeoff_y;
-                waypoint_sp.pose.position.z = takeoff_height;
+                waypoint_sp.pose.position.x = traj_sp_enu.position.x; // take this as position setpoint in local enu frame
+                waypoint_sp.pose.position.y = traj_sp_enu.position.y;
+                waypoint_sp.pose.position.z = traj_sp_enu.position.z;
+                tf2::Quaternion traj_quat;
+                traj_quat.setRPY(0, 0, traj_sp_enu.heading);
+                waypoint_sp.pose.orientation.w = traj_quat.getW();
+                waypoint_sp.pose.orientation.x = traj_quat.getX();
+                waypoint_sp.pose.orientation.y = traj_quat.getY();
+                waypoint_sp.pose.orientation.z = traj_quat.getZ();
                 local_pos_pub.publish(waypoint_sp);
                 break;
             }
+        }
+        else // no user input nav goal, just use takeoff pose
+        {
+            waypoint_sp.pose.position.x = takeoff_x;
+            waypoint_sp.pose.position.y = takeoff_y;
+            waypoint_sp.pose.position.z = takeoff_height;
+            local_pos_pub.publish(waypoint_sp);
+            break;
+        }
         // }
 
         // else
@@ -165,7 +172,6 @@ void OffbNode::missionTimer(const ros::TimerEvent &)
         //     // use offoard position mode here
         //     break;
         // }
-
     }
 
     case kMission:
@@ -476,4 +482,9 @@ void OffbNode::clearTrajectory()
 void OffbNode::refTrajPtCallBack(const quadrotor_msgs::TrajectoryPoint::ConstPtr &msg)
 {
     traj_pt_nwu = *msg;
+}
+
+void OffbNode::trajSpENUCallBack(const quadrotor_msgs::TrajectoryPoint::ConstPtr &msg)
+{
+    traj_sp_enu = *msg;
 }

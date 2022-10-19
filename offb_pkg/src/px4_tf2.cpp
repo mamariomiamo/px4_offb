@@ -20,11 +20,17 @@ namespace px4_tf2
         ref_pose_sub = nh.subscribe<geometry_msgs::PoseStamped>(
             "/uav/ref_pose/nwu", 1, &px4_tf2::refPoseCallBack, this);
 
+        traj_nwu_sub = nh.subscribe<quadrotor_msgs::TrajectoryPoint>(
+            "/uav/trajectory_point/nwu", 1, &px4_tf2::trajSetpointCallBack, this);
+
         global_nwu_pose_pub_ =
             nh_.advertise<geometry_msgs::PoseStamped>("/" + m_uav_id_ + "/" + "global_nwu", 10);
 
         navGoal_enu_pub_ =
             nh_.advertise<geometry_msgs::PoseStamped>("/" + m_uav_id_ + "/" + "navGoal_enu", 10);
+
+        traj_enu_pub =
+            nh_.advertise<quadrotor_msgs::TrajectoryPoint>("/" + m_uav_id_ + "/" + "traj_sp_enu", 10);
 
         listener_timer_ = nh_.createTimer(ros::Duration(0.05), &px4_tf2::listenerTimerCb, this, false, false);
 
@@ -77,7 +83,7 @@ namespace px4_tf2
                                                            navGoal_sp.pose.orientation.y,
                                                            navGoal_sp.pose.orientation.z)
                                             .toRotationMatrix();
-            
+
             Eigen::Affine3d navGoal_enu_homo;
             navGoal_enu_homo.matrix() = map_to_enu_homo.matrix() * navGoal_nwu_homo.matrix();
 
@@ -109,6 +115,67 @@ namespace px4_tf2
         navGoal_sp = *msg;
         std::cout << "refPose received, require converion to from map to local_enu" << std::endl;
         // navGoal_init = true;
+    }
+
+    void px4_tf2::trajSetpointCallBack(const quadrotor_msgs::TrajectoryPoint::ConstPtr &msg)
+    {
+        traj_sp_nwu = *msg;
+        // navGoal_init = true;
+        tf2::Quaternion traj_quat;
+        traj_quat.setRPY(0, 0, traj_sp_nwu.heading);
+        Eigen::Affine3d traj_nwu_homo = Eigen::Affine3d::Identity();
+
+        traj_nwu_homo.translation() = Eigen::Vector3d(traj_sp_nwu.position.x,
+                                                      traj_sp_nwu.position.y,
+                                                      traj_sp_nwu.position.z);
+        traj_nwu_homo.linear() = Eigen::Quaterniond(traj_quat.getW(),
+                                                    traj_quat.getX(),
+                                                    traj_quat.getY(),
+                                                    traj_quat.getZ())
+                                     .toRotationMatrix();
+        // traj_nwu_homo.translation() = Eigen::Vector3d(traj_sp_nwu.position.x,
+        //                                               traj_sp_nwu.position.y,
+        //                                               traj_sp_nwu.position.z);
+        Eigen::Affine3d traj_enu_homo;
+        traj_enu_homo.matrix() = map_to_enu_homo.matrix() * traj_nwu_homo.matrix();
+
+        Eigen::Vector3d traj_sp_enu_pos(traj_enu_homo.translation());
+
+        Eigen::Quaterniond att_sp_enu(traj_enu_homo.linear());
+
+        auto euler = att_sp_enu.toRotationMatrix().eulerAngles(0, 1, 2);
+
+        // Eigen::Vector4d traj_sp_nwu_pos = Eigen::Vector4d(traj_sp_nwu.position.x,
+        //                                                   traj_sp_nwu.position.y,
+        //                                                   traj_sp_nwu.position.z, 1);
+
+        Eigen::Vector4d traj_sp_nwu_vel = Eigen::Vector4d(traj_sp_nwu.velocity.x,
+                                                          traj_sp_nwu.velocity.y,
+                                                          traj_sp_nwu.velocity.z, 1);
+
+        Eigen::Vector4d traj_sp_nwu_acc = Eigen::Vector4d(traj_sp_nwu.acceleration.x,
+                                                          traj_sp_nwu.acceleration.y,
+                                                          traj_sp_nwu.acceleration.z, 1);
+
+        // Eigen::Vector4d traj_sp_enu_pos = map_to_enu_homo.matrix() * traj_sp_nwu_pos;
+        Eigen::Vector4d traj_sp_enu_vel = map_to_enu_homo.matrix() * traj_sp_nwu_vel;
+        Eigen::Vector4d traj_sp_enu_acc = map_to_enu_homo.matrix() * traj_sp_nwu_acc;
+
+        traj_sp_enu.position.x = traj_sp_enu_pos(0);
+        traj_sp_enu.position.y = traj_sp_enu_pos(1);
+        traj_sp_enu.position.z = traj_sp_enu_pos(2);
+
+        traj_sp_enu.velocity.x = traj_sp_enu_vel(0);
+        traj_sp_enu.velocity.y = traj_sp_enu_vel(1);
+        traj_sp_enu.velocity.z = traj_sp_enu_vel(2);
+
+        traj_sp_enu.acceleration.x = traj_sp_enu_acc(0);
+        traj_sp_enu.acceleration.y = traj_sp_enu_acc(1);
+        traj_sp_enu.acceleration.z = traj_sp_enu_acc(2);
+
+        traj_sp_enu.heading = euler(2);
+
+        traj_enu_pub.publish(traj_sp_enu);
     }
 
     void px4_tf2::listenerTimerCb(const ros::TimerEvent &)
