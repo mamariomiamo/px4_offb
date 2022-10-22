@@ -17,6 +17,7 @@ find_package(catkin REQUIRED COMPONENTS
   tf2
   tf2_ros
   quadrotor_msgs
+  eigen_conversions
 )
 
 add_subdirectory(offboard_controller_lib)

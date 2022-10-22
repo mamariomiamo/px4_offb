@@ -62,6 +62,7 @@
             <param name="arm_safety_check" value="false"/>
             <param name="user_give_goal" value="false"/>
             <param name="uav_id" value="$(arg xid)"/>
+            <param name="use_px4Ctrl" value="false"/>
     
         </node>
 
