@@ -1,9 +1,6 @@
 [submodule "rviz_plugin"]
 	path = rviz_plugin
 	url = https://github.com/mamariomiamo/rviz_plugin
-[submodule "offb_pkg/offboard_controller_lib"]
-	path = offb_pkg/offboard_controller_lib
-	url = git@github.com:mamariomiamo/offboard_controller_lib.git
 [submodule "trajectory_publisher"]
 	path = trajectory_publisher
 	url = https://github.com/mamariomiamo/trajectory_publisher
@@ -11,3 +8,6 @@
 [submodule "quadrotor_msgs"]
 	path = quadrotor_msgs
 	url = git@github.com:mamariomiamo/quadrotor_msgs.git
+[submodule "offb_pkg"]
+	path = offb_pkg
+	url = git@github.com:mamariomiamo/offb_pkg.git
