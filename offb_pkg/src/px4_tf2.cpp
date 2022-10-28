@@ -26,6 +26,9 @@ namespace px4_tf2
         global_nwu_pose_pub_ =
             nh_.advertise<geometry_msgs::PoseStamped>("/" + m_uav_id_ + "/" + "global_nwu", 10);
 
+        global_nwu_odom_pub_ =
+            nh_.advertise<nav_msgs::Odometry>("/" + m_uav_id_ + "/" + "global_nwu_odom", 10);
+
         navGoal_enu_pub_ =
             nh_.advertise<geometry_msgs::PoseStamped>("/" + m_uav_id_ + "/" + "navGoal_enu", 10);
 
@@ -241,5 +244,18 @@ namespace px4_tf2
         global_nwu_pose.pose.orientation.y = transformStamped.transform.rotation.y;
         global_nwu_pose.pose.orientation.z = transformStamped.transform.rotation.z;
         global_nwu_pose_pub_.publish(global_nwu_pose);
+
+        nav_msgs::Odometry global_nwu_odom;
+        global_nwu_odom.header.frame_id = "map";
+        global_nwu_odom.child_frame_id = m_uav_id_ + "_body";
+        global_nwu_odom.header.stamp = transformStamped.header.stamp;
+        global_nwu_odom.pose.pose.position.x = transformStamped.transform.translation.x;
+        global_nwu_odom.pose.pose.position.y = transformStamped.transform.translation.y;
+        global_nwu_odom.pose.pose.position.z = transformStamped.transform.translation.z;
+        global_nwu_odom.pose.pose.orientation.w = transformStamped.transform.rotation.w;
+        global_nwu_odom.pose.pose.orientation.x = transformStamped.transform.rotation.x;
+        global_nwu_odom.pose.pose.orientation.y = transformStamped.transform.rotation.y;
+        global_nwu_odom.pose.pose.orientation.z = transformStamped.transform.rotation.z;
+        global_nwu_odom_pub_.publish(global_nwu_odom);
     }
 }; // namespace px4_tf2

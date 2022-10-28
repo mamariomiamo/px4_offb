@@ -8,6 +8,7 @@
 #include <string>
 #include "quadrotor_msgs/TrajectoryPoint.h"
 #include <geometry_msgs/PoseStamped.h>
+#include <nav_msgs/Odometry.h>
 #include <iostream>
 #include <Eigen/Dense>
 
@@ -23,7 +24,7 @@ namespace px4_tf2
 
         ros::Subscriber uav_pose_sub_, navGoal_sub, ref_pose_sub, traj_nwu_sub;
 
-        ros::Publisher global_nwu_pose_pub_, navGoal_enu_pub_, traj_enu_pub;
+        ros::Publisher global_nwu_pose_pub_, global_nwu_odom_pub_, navGoal_enu_pub_, traj_enu_pub;
 
         ros::Timer listener_timer_;
 
