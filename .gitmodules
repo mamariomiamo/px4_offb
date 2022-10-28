@@ -8,3 +8,6 @@
 	path = trajectory_publisher
 	url = https://github.com/mamariomiamo/trajectory_publisher
 	branch = main
+[submodule "quadrotor_msgs"]
+	path = quadrotor_msgs
+	url = git@github.com:mamariomiamo/quadrotor_msgs.git
