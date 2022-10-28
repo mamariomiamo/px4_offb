@@ -116,7 +116,7 @@ namespace px4_tf2
     void px4_tf2::refPoseCallBack(const geometry_msgs::PoseStamped::ConstPtr &msg)
     {
         navGoal_sp = *msg;
-        std::cout << "refPose received, require converion to from map to local_enu" << std::endl;
+        // std::cout << "refPose received, require converion to from map to local_enu" << std::endl;
         // navGoal_init = true;
     }
 
@@ -152,17 +152,17 @@ namespace px4_tf2
         //                                                   traj_sp_nwu.position.y,
         //                                                   traj_sp_nwu.position.z, 1);
 
-        Eigen::Vector4d traj_sp_nwu_vel = Eigen::Vector4d(traj_sp_nwu.velocity.x,
+        Eigen::Vector3d traj_sp_nwu_vel = Eigen::Vector3d(traj_sp_nwu.velocity.x,
                                                           traj_sp_nwu.velocity.y,
-                                                          traj_sp_nwu.velocity.z, 1);
+                                                          traj_sp_nwu.velocity.z);
 
-        Eigen::Vector4d traj_sp_nwu_acc = Eigen::Vector4d(traj_sp_nwu.acceleration.x,
+        Eigen::Vector3d traj_sp_nwu_acc = Eigen::Vector3d(traj_sp_nwu.acceleration.x,
                                                           traj_sp_nwu.acceleration.y,
-                                                          traj_sp_nwu.acceleration.z, 1);
+                                                          traj_sp_nwu.acceleration.z);
 
         // Eigen::Vector4d traj_sp_enu_pos = map_to_enu_homo.matrix() * traj_sp_nwu_pos;
-        Eigen::Vector4d traj_sp_enu_vel = map_to_enu_homo.matrix() * traj_sp_nwu_vel;
-        Eigen::Vector4d traj_sp_enu_acc = map_to_enu_homo.matrix() * traj_sp_nwu_acc;
+        Eigen::Vector3d traj_sp_enu_vel = map_to_enu_rot * traj_sp_nwu_vel;
+        Eigen::Vector3d traj_sp_enu_acc = map_to_enu_rot * traj_sp_nwu_acc;
 
         traj_sp_enu.position.x = traj_sp_enu_pos(0);
         traj_sp_enu.position.y = traj_sp_enu_pos(1);
@@ -205,6 +205,7 @@ namespace px4_tf2
                                                 transformStamped.transform.rotation.y,
                                                 transformStamped.transform.rotation.z);
 
+            // map_to_enu_rot = map_to_enu_rot_quat.toRotationMatrix();
             map_to_enu_trans << transformStamped.transform.translation.x,
                 transformStamped.transform.translation.y,
                 transformStamped.transform.translation.z;
