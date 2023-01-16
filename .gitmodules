@@ -1,13 +1,12 @@
 [submodule "rviz_plugin"]
 	path = rviz_plugin
 	url = https://github.com/mamariomiamo/rviz_plugin
-[submodule "trajectory_publisher"]
-	path = trajectory_publisher
-	url = https://github.com/mamariomiamo/trajectory_publisher
-	branch = main
 [submodule "quadrotor_msgs"]
 	path = quadrotor_msgs
 	url = git@github.com:mamariomiamo/quadrotor_msgs.git
 [submodule "offb_pkg"]
 	path = offb_pkg
 	url = git@github.com:mamariomiamo/offb_pkg.git
+[submodule "trajectory_publisher"]
+	path = trajectory_publisher
+	url = git@github.com:mamariomiamo/trajectory_publisher.git
