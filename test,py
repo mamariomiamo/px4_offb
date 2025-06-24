@@ -1,0 +1,377 @@
+import time
+import threading
+from pymavlink import mavutil
+from enum import Enum
+from math import sqrt, radians, degrees, atan2, pi
+import yaml
+
+def normalize_angle(angle_rad):
+    """Normalize angle to [-π, π]."""
+    while angle_rad > pi:
+        angle_rad -= 2 * pi
+    while angle_rad < -pi:
+        angle_rad += 2 * pi
+    return angle_rad
+
+class TaskState(Enum):
+    IDLE = 0
+    TAKEOFF = 1
+    MISSION = 2
+    LAND = 3
+
+class UavStateMonitor:
+    def __init__(self, master):
+        self.master = master
+        self.running = False
+        self.lock = threading.Lock()
+        self.task_state = TaskState.IDLE
+
+        self.task_lock = threading.Lock()
+        self.target_altitude = 1.5
+        self.takeoff_yaw = None
+        self.takeoff_x = None
+        self.takeoff_y = None
+        self.takeoff_position = None
+        self.current_heading_target = None
+        self.current_wp_reference_xy = None  # For holding pose while rotating
+        self.current_waypoint_index = 0
+        self.loaded_waypoints = []
+
+        # Shared data protected by lock
+        self.last_position = None  # tuple (x, y, z)
+        self.last_yaw = None
+        self.last_mode = None      # dict with mode info
+        self.is_armed = None
+
+        self._pose_monitor_thread = threading.Thread(target=self._monitor_local_pose, name="PoseMonThread", daemon=True)
+        self._mode_thread = threading.Thread(target=self._monitor_mode, name="ModeMonThread", daemon=True)
+
+        self.runner_thread = threading.Thread(target=self._runner_loop, name="UAV-Runner", daemon=True)
+        self.runner_thread.start()
+
+    def _runner_loop(self):
+        rate = 1 / 20.0  # 20 Hz
+
+        while True:
+            with self.task_lock:
+                state = self.task_state
+
+            if state == TaskState.TAKEOFF:
+                self._send_position_setpoint(self.takeoff_x, self.takeoff_y, -self.target_altitude, self.takeoff_yaw)
+
+            elif state == TaskState.MISSION:
+                if not self.loaded_waypoints:
+                    print("Waypoints not loaded")
+                    continue
+
+                # wp = self.loaded_waypoints[self.current_waypoint_index]
+                # # x, y, z, yaw_deg = wp
+                # # yaw = radians(yaw_deg)
+
+                # # Get waypoint reference pose
+                # x_wp, y_wp, z_wp, yaw_wp_deg = wp
+                # yaw_wp = radians(yaw_wp_deg)
+
+                with self.lock:
+                    pos = self.last_position
+                    current_yaw = self.last_yaw
+
+                if not pos or current_yaw is None:
+                    print("Waiting for position and yaw data...")
+                    continue
+                    
+                x, y, z = pos
+                # Get current waypoint
+                x_wp, y_wp, z_wp, yaw_wp_deg = self.loaded_waypoints[self.current_waypoint_index]
+                yaw_wp = radians(yaw_wp_deg)
+
+                # Compute target heading ONCE per waypoint index
+                if self.current_heading_target is None:
+                    if self.current_waypoint_index == 0:
+                        ref_x, ref_y = self.takeoff_position
+                    else:
+                        ref_x, ref_y = self.loaded_waypoints[self.current_waypoint_index - 1][:2]
+
+                    self.current_heading_target = atan2(y_wp - ref_y, x_wp - ref_x)
+                    self.current_wp_reference_xy = (ref_x, ref_y)
+                
+                heading_error = normalize_angle(self.current_heading_target - current_yaw)
+
+                # Step 1: Rotate in place before moving
+                if abs(degrees(heading_error)) > 5:
+                    print(f"🧭 Rotating to face waypoint {self.current_waypoint_index + 1}")
+                    ref_x, ref_y = self.current_wp_reference_xy
+                    self._send_position_setpoint(ref_x, ref_y, z_wp, self.current_heading_target)
+                    continue
+
+                # Step 2: Move toward the waypoint
+                self._send_position_setpoint(x_wp, y_wp, z_wp, self.current_heading_target)
+
+
+                dx = x_wp - x
+                dy = y_wp - y
+                dist = sqrt(dx**2 + dy**2 + (z_wp - z)**2)
+
+                if dist < 0.2:
+                    # Position reached, now align yaw to final waypoint orientation
+                    final_yaw_error = normalize_angle(yaw_wp - current_yaw)
+                    if abs(degrees(final_yaw_error)) > 5:
+                        print(f"🎯 Adjusting yaw to match final orientation at waypoint {self.current_waypoint_index + 1}")
+                        self._send_position_setpoint(x_wp, y_wp, z_wp, yaw_wp)
+                        continue
+
+                print(f"✅ Reached waypoint {self.current_waypoint_index + 1}/{len(self.loaded_waypoints)}")
+                self.current_waypoint_index += 1
+                self.current_heading_target = None  # Reset for next waypoint
+                self.current_wp_reference_xy = None
+
+                if self.current_waypoint_index >= len(self.loaded_waypoints):
+                    print("🏁 Mission complete. Initiating landing sequence.")
+                    with self.task_lock:
+                        self.task_state = TaskState.LAND
+
+            elif state == TaskState.LAND:
+                self.master.mav.command_long_send(
+                    self.master.target_system,
+                    self.master.target_component,
+                    mavutil.mavlink.MAV_CMD_NAV_LAND,
+                    0, 0, 0, 0, 0, 0, 0, 0
+                )
+                time.sleep(1)
+                with self.task_lock:
+                    self.task_state = TaskState.IDLE
+
+            time.sleep(rate)
+
+    def start(self):
+        self.running = True
+        self._pose_monitor_thread.start()
+        self._mode_thread.start()
+
+    def stop(self):
+        self.running = False
+        self._pose_monitor_thread.join()
+        self._mode_thread.join()
+
+    def _monitor_local_pose(self):
+        while self.running:
+            msg = self.master.recv_match(type='LOCAL_POSITION_NED', blocking=True, timeout=1)
+            if msg:
+                with self.lock:
+                    self.last_position = (msg.x, msg.y, msg.z)
+            msg = self.master.recv_match(type="ATTITUDE", blocking=False)
+            if msg:
+                with self.lock:
+                    self.last_yaw = msg.yaw
+            time.sleep(0.2)  # 5Hz
+
+    def _monitor_mode(self):
+        while self.running:
+            msg = self.master.recv_match(type='HEARTBEAT', blocking=True, timeout=1)
+            if msg:
+                base_mode = msg.base_mode
+                custom_mode = msg.custom_mode
+                is_armed = (msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED) != 0
+
+                # Just store raw base and custom mode for simplicity here
+                with self.lock:
+                    self.last_mode = {"base_mode": base_mode, "custom_mode": custom_mode}
+                    self.is_armed = is_armed
+
+            time.sleep(1.0)  # 1Hz
+
+    def arm(self):
+        print("Sending ARM command...")
+        self.master.mav.command_long_send(
+            self.master.target_system,
+            self.master.target_component,
+            mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
+            0,
+            1, 0, 0, 0, 0, 0, 0
+        )
+
+    def disarm(self):
+        print("Sending DISARM command...")
+        self.master.mav.command_long_send(
+            self.master.target_system,
+            self.master.target_component,
+            mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
+            0,
+            0, 0, 0, 0, 0, 0, 0
+        )
+
+    def _send_position_setpoint(self, x, y, z, yaw):
+        type_mask = (
+            mavutil.mavlink.POSITION_TARGET_TYPEMASK_VX_IGNORE |
+            mavutil.mavlink.POSITION_TARGET_TYPEMASK_VY_IGNORE |
+            mavutil.mavlink.POSITION_TARGET_TYPEMASK_VZ_IGNORE |
+            mavutil.mavlink.POSITION_TARGET_TYPEMASK_AX_IGNORE |
+            mavutil.mavlink.POSITION_TARGET_TYPEMASK_AY_IGNORE |
+            mavutil.mavlink.POSITION_TARGET_TYPEMASK_AZ_IGNORE |
+            mavutil.mavlink.POSITION_TARGET_TYPEMASK_YAW_RATE_IGNORE
+        )
+
+        self.master.mav.set_position_target_local_ned_send(
+            int(time.time() * 1000) & 0xFFFFFFFF,
+            self.master.target_system,
+            self.master.target_component,
+            mavutil.mavlink.MAV_FRAME_LOCAL_NED,
+            type_mask,
+            x, y, z,
+            0, 0, 0,
+            0, 0, 0,
+            yaw, 0
+        )
+
+    def takeoff(self, altitude=1.5) -> bool:
+        print(f"Initiating takeoff sequence to {altitude}m...")
+
+        if not self.is_armed:
+            print("⚠️  Drone is not armed. Please arm it manually before takeoff.")
+            return False
+
+        # Get current yaw from last position
+        with self.lock:
+            if self.last_position is None or self.last_yaw is None:
+                print("⚠️ Cannot take off: missing position or yaw.")
+                return False
+            yaw = self.last_yaw
+            takeoff_x = self.last_position[0]
+            takeoff_y = self.last_position[1]
+
+        # 1. Prime PX4 by sending 10 Hz setpoints
+        for _ in range(20):
+            self._send_position_setpoint(0, 0, -altitude, 0)
+            time.sleep(0.1)
+
+        # 2. Switch to OFFBOARD mode
+        print("Switching to OFFBOARD mode...")
+        self.master.mav.command_long_send(
+            self.master.target_system,
+            self.master.target_component,
+            mavutil.mavlink.MAV_CMD_DO_SET_MODE,
+            0,
+            mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
+            6, 0, 0, 0, 0, 0  # PX4 OFFBOARD
+        )
+        time.sleep(1)
+
+        # 4. Set task state to start OFFBOARD control
+        with self.task_lock:
+            self.task_state = TaskState.TAKEOFF
+            self.target_altitude = altitude
+            self.takeoff_yaw = yaw
+            self.takeoff_x = takeoff_x
+            self.takeoff_y = takeoff_y
+            self.takeoff_position = (takeoff_x, takeoff_y)
+            print(f"Takeoff pose set to ({self.takeoff_x}, {self.takeoff_y}, {degrees(yaw):.1f}°)")
+            return True
+
+    def land(self):
+        print("Sending LAND command...")
+
+        self.master.mav.command_long_send(
+            self.master.target_system,
+            self.master.target_component,
+            mavutil.mavlink.MAV_CMD_NAV_LAND,  # 21
+            0,  # confirmation
+            0, 0, 0, 0, 0, 0, 0  # x, y, z, yaw — all zero to land at current position
+        )
+
+    def get_latest_state(self):
+        with self.lock:
+            pos = self.last_position
+            mode = self.last_mode
+        return pos, mode
+
+
+def print_welcome():
+    ascii_art = r"""
+⣿⣿⣿⣿⣿⠿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠿⣿⣿⣿⣿⣿
+⣿⡿⠿⠿⠿⠷⠿⠿⠿⠿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠿⠿⠿⠿⠾⠿⠿⠿⢿⣿
+⣿⣿⣿⣿⣿⠟⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠻⣿⣿⣿⣿⣿
+⣿⣿⣿⣿⣿⣤⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣤⣿⣿⣿⣿⣿
+⣿⣿⣿⠁⠀⠀⠀⠀⣿⣿⣿⣿⣿⣡⣤⣤⣌⣿⣿⣿⣿⣿⠀⠀⠀⠀⠈⣿⣿⣿
+⣿⣿⣿⣤⣤⣄⣀⣀⠀⠀⠀⢠⡾⢋⣤⣤⡙⢷⡄⠀⠀⠀⣀⣀⣠⣤⣤⣿⣿⣿
+⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⢷⣾⣧⡘⠿⠿⢃⣼⣷⡾⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿
+⣿⣿⣿⣿⣿⣿⣿⠟⠁⢀⣴⣿⡉⠻⠶⠶⠟⢉⣿⣦⡀⠈⠻⣿⣿⣿⣿⣿⣿⣿
+⣿⣿⣿⣿⡿⠟⠁⣠⣴⣿⣿⣿⣷⣶⣶⣶⣶⣾⣿⣿⣿⣦⣄⠈⠻⢿⣿⣿⣿⣿
+⣿⣿⣿⣿⠀⠀⢺⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡗⠀⠀⣿⣿⣿⣿
+⣿⣿⣿⣿⣷⣄⠀⠻⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠟⠀⣠⣾⣿⣿⣿⣿
+⣿⣿⣿⣿⣿⣿⣦⡀⠙⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠋⢀⣴⣿⣿⣿⣿⣿⣿
+⣿⣿⣿⣿⣿⣿⣿⣷⣤⡾⠿⢿⣿⣿⣿⣿⣿⣿⡿⠿⢷⣤⣾⣿⣿⣿⣿⣿⣿⣿
+⣿⣿⣿⣿⣿⣿⣿⣿⣿⠀⠀⢸⣿⣿⣿⣿⣿⣿⡇⠀⠀⣿⣿⣿⣿⣿⣿⣿⣿⣿
+⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷⣶⣿⣿⣿⣿⣿⣿⣿⣿⣶⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿
+"""
+    print("Welcome to PX4 Drone!")
+    print(ascii_art)
+
+def print_menu():
+    print("\nAvailable Commands:")
+    print("A(rm): Arm the drone, motor will spin.")
+    print("D(isarm): Disarm the drone, motor will stop.")
+    print("T(ake-off): Drone will auto arm and fly to 1.5m high.")
+    print("L(and): Drone will land.")
+    print("M(onitor): Print last known drone position and mode.")
+    print("Q(uit): Exit the application.")
+
+def main():
+    # Connect to MAVLink
+    # master = mavutil.mavlink_connection('/dev/ttyACM0', baud=57600)
+    master = mavutil.mavlink_connection('udp:127.0.0.1:14540')
+
+    master.wait_heartbeat()
+    print("Connected to system (heartbeat received)")
+
+    monitor = UavStateMonitor(master)
+    monitor.start()
+
+    print_welcome()
+
+    try:
+        while True:
+            print_menu()
+            choice = input("Enter command: ").strip().upper()
+
+            if choice == 'A':
+                print("Arming the drone... (not implemented yet)")
+                monitor.arm()
+
+            elif choice == 'D':
+                print("Disarming the drone... (not implemented yet)")
+                monitor.disarm()
+
+            elif choice == 'T':
+                if monitor.takeoff():
+                    print("Set to TAKEOFF mode.")
+                else:
+                    print("Fail to set to TAKEOFF mode")
+
+            elif choice == 'M':
+                with open("waypoints.yaml") as f:
+                    monitor.loaded_waypoints = yaml.safe_load(f)["waypoints"]
+                monitor.current_waypoint_index = 0
+                with monitor.task_lock:
+                    monitor.task_state = TaskState.MISSION
+                print("Set to MISSION mode.")
+
+            elif choice == 'L':
+                with monitor.task_lock:
+                    monitor.task_state = TaskState.LAND
+                print("Set to LAND mode.")
+
+            elif choice == 'Q':
+                print("Exiting... Goodbye!")
+                break
+
+            else:
+                print("Invalid command. Please try again.")
+
+    except KeyboardInterrupt:
+        print("\nInterrupted by user. Exiting...")
+
+    finally:
+        monitor.stop()
+
+if __name__ == "__main__":
+    main()
