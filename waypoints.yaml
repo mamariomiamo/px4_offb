@@ -1,4 +1,6 @@
 # NED frame
+# MPC_XY_VEL_MAX
+# COM_OF_LOSS_T
 waypoints:
   - [0.0, 0.0, -2.0, 90.0]
   - [10.0, 0.0, -2.0, 90.0]
